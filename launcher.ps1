@@ -9,11 +9,10 @@ param(
     [ValidateSet("build","up","logs","clean","kill")]
     [string]$Command,
     
-    [string]$Head = "template",
+    [string]$Head = "humanoid",
     [string]$EnvFile,
     [switch]$NoGui,
     [switch]$Headless,
-    [switch]$Viz,
     [string]$Task
 )
 
@@ -28,7 +27,6 @@ $HeadTaskMap = @{
     "cobot"    = "Isaac-Cobot-Reaching-v0"
 }
 
-
 function Write-Info($msg) { Write-Host $msg -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host $msg -ForegroundColor Yellow }
 function Write-Err($msg) { Write-Host $msg -ForegroundColor Red }
@@ -38,32 +36,24 @@ function Show-Usage {
 Usage: .\launcher.ps1 <command> [options]
 
 Commands:
-  build                        Build Docker images (main + viz)
-  up                          Start simulation container
-  logs [service]              Show logs (default: isaac-sim)
-  clean                       Remove containers, images, volumes
-  kill                        Stop and remove containers
+  build                        Build Docker simulation image
+  up                           Start headless simulation container
+  logs [service]               Show logs (default: isaac-sim)
+  clean                        Remove containers, images, volumes
+  kill                         Stop and remove containers
 
 Options for 'up':
-  -Head <name>                Head/environment name (default: template)
-  -EnvFile <path>             Path to environment config file
-  -NoGui                      Run headless (no Isaac Sim GUI)
-  -Headless                   Alias for -NoGui
-  -Viz                        Run with browser visualization (noVNC) instead
-                              of the plain sim container. Open:
-                              http://localhost:6080/vnc.html
-  -Task <task>                IsaacLab task to auto-start inside the -Viz
-                              container (e.g. Isaac-Humanoid-v0). Falls back
-                              to the head's default task when not given.
+  -Head <name>                 Head name (humanoid | anymal | amr | cobot)
+  -EnvFile <path>              Path to environment config file
+  -Headless                    Run in headless container mode (Camera & ROS2 active)
+  -Task <task>                 IsaacLab task override
 
 Examples:
   .\launcher.ps1 build
-  .\launcher.ps1 up -Head anymal
-  .\launcher.ps1 up -Head spider -NoGui
-  .\launcher.ps1 up -Head spider -Headless
-  .\launcher.ps1 up -Head humanoid -Viz
-  .\launcher.ps1 up -Head humanoid -Viz -Task Isaac-Humanoid-v0
-  .\launcher.ps1 up -EnvFile .env.custom
+  .\launcher.ps1 up -Head humanoid -Headless
+  .\launcher.ps1 up -Head anymal -Headless
+  .\launcher.ps1 up -Head amr -Headless
+  .\launcher.ps1 up -Head cobot -Headless
   .\launcher.ps1 logs
   .\launcher.ps1 kill
 "@
@@ -86,13 +76,11 @@ if ($EnvFile) {
 }
 
 function Invoke-Build {
-    Write-Info "Building Isaac RL Studio images (main + viz)..."
+    Write-Info "Building Isaac RL Studio Docker image..."
     Push-Location (Join-Path $ScriptDir "docker")
     try {
         docker compose -f $ComposeFile build isaac-sim
         if ($LASTEXITCODE -ne 0) { throw "docker compose build isaac-sim failed" }
-        docker compose -f $ComposeFile build isaac-viz
-        if ($LASTEXITCODE -ne 0) { throw "docker compose build isaac-viz failed" }
     }
     finally {
         Pop-Location
@@ -102,66 +90,25 @@ function Invoke-Build {
 
 function Invoke-Up {
     if (-not $Head) {
-        $Head = "template"
+        $Head = "humanoid"
         Write-Warn "No -Head specified, using default: $Head"
     }
 
     $headPath = Join-Path $ScriptDir "core\source\$Head"
     if (-not (Test-Path $headPath)) {
         Write-Err "Head not found: $Head"
-        Write-Host "Available heads:"
-        Get-ChildItem (Join-Path $ScriptDir "heads") -Directory | ForEach-Object { Write-Host "  $($_.Name)" }
+        Write-Host "Available heads: humanoid, anymal, amr, cobot"
         exit 1
     }
 
     $env:HEAD_NAME = $Head
-    $noGuiEffective = $NoGui -or $Headless
-    if ($noGuiEffective) { $env:NO_GUI = "1" }
-    else { Remove-Item Env:NO_GUI -ErrorAction SilentlyContinue }
+    $env:NO_GUI = "1"
 
-    if ($Viz) {
-        # Ensure the viz container always runs in GUI mode and does not inherit headless settings.
-        $env:NO_GUI = "0"
-        $env:VIZ_MODE = "1"
-
-        $vizPort = if ($env:VIZ_PORT) { $env:VIZ_PORT } else { "6080" }
-        $taskEffective = if ($Task) { $Task } elseif ($HeadTaskMap[$Head]) { $HeadTaskMap[$Head] } else { "" }
-        if ($taskEffective) {
-            $env:VIZ_TASK = $taskEffective
-            Write-Info "Auto-starting task: $taskEffective (headless training)"
-        }
-        else {
-            Remove-Item Env:VIZ_TASK -ErrorAction SilentlyContinue
-            Write-Warn "No task mapped for head '$Head' - visualization only (no robot)"
-        }
-        Write-Info "Starting visualization container with head: $Head"
-        Write-Warn "Open http://localhost:$vizPort/vnc.html in your browser (virtual desktop only)"
-        Write-Warn "Training metrics: http://localhost:6006 (TensorBoard, auto-started)"
-        Push-Location (Join-Path $ScriptDir "docker")
-        try {
-            docker compose -f $ComposeFile stop isaac-sim 2>&1 | Out-Null
-            docker compose -f $ComposeFile up -d isaac-viz
-        }
-        finally {
-            Pop-Location
-        }
-
-        $containerId = docker compose -f $ComposeFile ps -q isaac-viz
-        if ($containerId) {
-            Write-Info "Viz container started: $containerId"
-            Write-Host "Enter: docker exec -it $containerId bash"
-            Write-Host "Then:  source /usr/local/bin/isaac-ros-entrypoint.sh"
-            Write-Host "Logs:  .\launcher.ps1 logs isaac-viz"
-        }
-        return
-    }
-
-    Write-Info "Starting with head: $Head"
-    if ($noGuiEffective) { Write-Warn "Running headless mode" }
+    Write-Info "Starting headless simulation with head: $Head"
+    Write-Info "In-scene Camera Active -> Saving MP4 to /workspace/data/videos & streaming live to ROS2 /camera/rgb/image_raw"
 
     Push-Location (Join-Path $ScriptDir "docker")
     try {
-        docker compose -f $ComposeFile stop isaac-viz 2>&1 | Out-Null
         docker compose -f $ComposeFile up -d isaac-sim
     }
     finally {
@@ -171,8 +118,9 @@ function Invoke-Up {
     $containerId = docker compose -f $ComposeFile ps -q isaac-sim
     if ($containerId) {
         Write-Info "Container started: $containerId"
-        Write-Host "Enter: docker exec -it $containerId bash"
-        Write-Host "Logs:  .\launcher.ps1 logs"
+        Write-Host "Enter container: docker exec -it $containerId bash"
+        Write-Host "View ROS2 stream: python3 core/ros2_ws/image_listener.py"
+        Write-Host "View logs:       .\launcher.ps1 logs"
     }
 }
 
