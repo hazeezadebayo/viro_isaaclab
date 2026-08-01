@@ -1,0 +1,13 @@
+# Excluded documentation artifacts per user request
+output_log.md
+project_report.md
+scratch/
+
+# Temporary and binary model artifacts
+__pycache__/
+*.pyc
+.DS_Store
+workspace/logs/
+workspace/models/*.pt
+*.h5
+*.hdf5

@@ -1,0 +1,89 @@
+# Multi-Robot ROS2 Bridge Configuration for IsaacLab (Humanoid, ANYmal, AMR, Cobot)
+# Consumed by Isaac Sim omni.isaac.ros2_bridge extension inside Docker container.
+
+/isaac_sim:
+  ros2_bridge:
+    enabled: true
+    ros2_robot_namespace: ""
+    ros2_domain_id: 0
+    ros2_qos_profile: "sensor_data"
+    publisher_queue_size: 10
+    subscriber_queue_size: 10
+
+    # --- Published Topics (IsaacLab Simulation -> ROS2 Network) ---
+    ros2_topics:
+      "/clock":
+        type: "rosgraph_msgs/Clock"
+        qos: "SYSTEM_DEFAULT"
+        direction: "PUBLISH"
+
+      "/joint_states":
+        type: "sensor_msgs/JointState"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+      "/tf":
+        type: "tf2_msgs/TFMessage"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+      "/tf_static":
+        type: "tf2_msgs/TFMessage"
+        qos: "TRANSIENT_LOCAL"
+        direction: "PUBLISH"
+
+      "/odom":
+        type: "nav_msgs/Odometry"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+      "/imu/data":
+        type: "sensor_msgs/Imu"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+      "/scan":
+        type: "sensor_msgs/LaserScan"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+      "/camera/rgb/image_raw":
+        type: "sensor_msgs/Image"
+        qos: "SENSOR_DATA"
+        direction: "PUBLISH"
+
+    # --- Subscribed Topics (ROS2 Network -> IsaacLab Simulation Systems) ---
+    # Accurately mapped to the 4 robot systems in core/source/ (Humanoid, ANYmal, AMR, Cobot)
+    ros2_subscriptions:
+      # 1. AMR & ANYmal Mobile Velocity Command (Twist v, w)
+      "/cmd_vel":
+        type: "geometry_msgs/Twist"
+        qos: "RELIABLE"
+        direction: "SUBSCRIBE"
+
+      # 2. AMR Nav2 Initial Pose Localization Reset
+      "/initialpose":
+        type: "geometry_msgs/PoseWithCovarianceStamped"
+        qos: "RELIABLE"
+        direction: "SUBSCRIBE"
+
+      # 3. Cobot 6-DOF End-Effector 3D Cartesian Goal Target
+      "/cobot/target_pose":
+        type: "geometry_msgs/PoseStamped"
+        qos: "RELIABLE"
+        direction: "SUBSCRIBE"
+
+      # 4. Cobot & Humanoid Joint Trajectory & Direct Target Position Override
+      "/cobot/joint_trajectory":
+        type: "trajectory_msgs/JointTrajectory"
+        qos: "RELIABLE"
+        direction: "SUBSCRIBE"
+
+      # 5. Humanoid Reference Motion Gait Direction Command
+      "/humanoid/motion_target":
+        type: "geometry_msgs/PoseStamped"
+        qos: "RELIABLE"
+        direction: "SUBSCRIBE"
+
+    ros2_services: []
+    ros2_actions: []

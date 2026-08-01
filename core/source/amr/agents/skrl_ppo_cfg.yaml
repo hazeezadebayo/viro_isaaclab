@@ -1,0 +1,15 @@
+seed: 42
+agent:
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 4
+  discount_factor: 0.99
+  lambda: 0.95
+  learning_rate: 1.0e-03
+  grad_norm_clip: 1.0
+  entropy_loss_scale: 0.005
+  value_loss_scale: 1.0
+  kl_threshold: 0.01
+trainer:
+  timesteps: 100000
+  environment_info: log
