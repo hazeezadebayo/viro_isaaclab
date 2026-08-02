@@ -15,7 +15,7 @@ import h5py
 import torch
 
 from isaaclab.envs import ManagerBasedRLEnv
-from core.source.cobot.tasks.cobot_env_cfg import CobotEnvCfg_VLA
+from core.source.cobot.vla.cobot_env_cfg import CobotEnvCfg_VLA
 
 
 def _capture_rgb(env: ManagerBasedRLEnv) -> np.ndarray:

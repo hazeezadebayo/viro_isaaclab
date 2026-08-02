@@ -13,7 +13,7 @@ import time
 import torch
 
 from isaaclab.envs import ManagerBasedRLEnv
-from core.source.cobot.tasks.cobot_env_cfg import CobotEnvCfg_VLA
+from core.source.cobot.vla.cobot_env_cfg import CobotEnvCfg_VLA
 from core.source.cobot.vla.pi0_model import Pi0VLAPolicy
 from core.source.cobot.vla.smol_vla_model import SmolVLAPolicy
 from core.source.cobot.vla.act_model import ACTPolicy

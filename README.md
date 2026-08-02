@@ -72,12 +72,6 @@ The PowerShell launcher provides 1-click execution for building containers, star
 
 #### Core CLI Commands (Cobot):
 ```powershell
-# 1. Build Docker Simulation Container
-.\launcher.ps1 build
-
-# 2. Start Headless Simulation Container & TensorBoard
-.\launcher.ps1 up -Head cobot -Headless
-
 # 1. Build & Launch Container Stack (Host PowerShell)
 .\launcher.ps1 build
 .\launcher.ps1 up -Head cobot -Headless

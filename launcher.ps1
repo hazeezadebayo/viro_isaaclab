@@ -36,7 +36,7 @@ $HeadTaskMap = @{
     "humanoid" = "Isaac-Humanoid-Imitation-v0"
     "anymal"   = "Isaac-Anymal-C-v0"
     "amr"      = "Isaac-AMR-Navigation-v0"
-    "cobot"    = "Isaac-Lift-Cylinder-Cobot-v0"
+    "cobot"    = "Isaac-Lift-Cylinder-Cobot-Play-v0" # "Isaac-Lift-Cylinder-Cobot-Play-v0" | "Isaac-Lift-Cylinder-Cobot-v0"
 }
 
 # Simulation step time (sim.dt * decimation) per head, used to convert video clip

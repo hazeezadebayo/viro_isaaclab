@@ -75,6 +75,7 @@ gym.register(
     },
 )
 
+# domain randomization is turned off.
 gym.register(
     id="Isaac-Lift-Cylinder-Cobot-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -85,22 +86,3 @@ gym.register(
     },
 )
 
-gym.register(
-    id="Isaac-Lift-Cylinder2-Cobot-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos3_cobot_env_cfg:CobotUR5eCylinderLift2EnvCfg",
-        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinder2PPORunnerCfg",
-    },
-)
-
-gym.register(
-    id="Isaac-Lift-Cylinder2-Cobot-Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos3_cobot_env_cfg:CobotUR5eCylinderLift2EnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinder2PPORunnerCfg",
-    },
-)

@@ -103,7 +103,34 @@ $$\mathcal{R}_t = 2.0 \, \exp\left(-\frac{\|\mathbf{p}_{\text{ee}} - \mathbf{p}_
 
 ---
 
-## 9. Vision-Language-Action (VLA) Framework ($\pi_0$, $\pi_{0.5}$, SmolVLA, ACT)
+## 9. Standard RL Execution (PPO)
+
+If you wish to train or play the standard RL policies using `rsl_rl`, you can run the following commands natively:
+
+```bash
+# Activate environment and navigate to the RSL-RL scripts directory
+source isaac_sim51_lab/bin/activate
+cd IsaacLab/scripts/reinforcement_learning/rsl_rl/
+
+# 1. Train the Model
+python train.py --task Isaac-Lift-Cylinder-Cobot-v0 --num_envs 4096 --max_iterations 7000 --headless \
+    --video --video_length 3000 --video_interval 90000 --enable_cameras
+
+# 2. Play a Trained Checkpoint
+python play.py --task Isaac-Lift-Cylinder-Cobot-v0 --num_envs 8 \
+    --checkpoint ./logs/rsl_rl/cobot_cylinder_ur5e/<DATE_TIME>/model_5350.pt \
+    --video --video_length 3000 --video_interval 90000 --enable_cameras
+```
+
+**Notes on Video Recording:**
+- `--video_length` is the clip length in SIMULATION STEPS (cobot `step_dt = 0.02 s`, so `3000` steps = `60 s`).
+- `--video_interval` is the steps between clip START times (`90000` steps = `30 min` of sim time).
+- A 1-minute clip is recorded immediately at simulation start, then every interval.
+- Videos are written to `<cwd>/logs/rsl_rl/<experiment_name>/<run>/videos/{train,play}/`.
+
+---
+
+## 10. Vision-Language-Action (VLA) Framework ($\pi_0$, $\pi_{0.5}$, SmolVLA, ACT)
 
 The Cobot head includes a dedicated VLA sub-module in `core/source/cobot/vla/` for training and inferencing Vision-Language-Action models:
 

@@ -1,94 +1,109 @@
-# Vision-Language-Action (VLA) Architecture & Fine-Tuning Guide
+# Vision-Language-Action (VLA) Architecture & Execution Guide
 
-An end-to-end, professor-level guide answering the 3 fundamental VLA questions: **Pretrained Fine-Tuning vs. Scratch**, **Data Location & Sample Trajectories**, and **1-Click Third-Party Helper Tools**.
+This guide provides a first-principles, step-by-step walkthrough for running the entire Vision-Language-Action (VLA) pipeline.
 
----
+Unlike standard RL (which maps proprioceptive state like joint angles to actions), a VLA model is a neural network (like a Transformer) that maps **RGB camera images** and **text prompts** directly to robot actions.
 
-## 1. Direct Answers to Core Questions
-
-### Q1: Am I training from scratch or downloading a pre-trained model and retraining?
-> **YOU ARE FINE-TUNING / RETRAINing PRE-TRAINED WEIGHTS.**
-> In modern robotics (HuggingFace LeRobot, Physical Intelligence $\pi_0$, OpenVLA), training vision-language backbones from scratch requires millions of robot interaction hours. 
-> 
-> Instead, our framework downloads base pre-trained weights (e.g. `lerobot/pi0_ur5` or `lerobot/smolvla`) and **fine-tunes** the action prediction heads using your Cobot dataset! This allows training to converge in **minutes instead of weeks**.
+The VLA pipeline consists of 3 distinct phases:
+1. **Data Collection**: Generate an `.h5` dataset of expert demonstrations (camera images + actions).
+2. **Offline Training**: Fine-tune a pre-trained VLA model on your collected dataset.
+3. **Closed-Loop Inference**: Deploy the trained model back into IsaacLab to execute actions live based on camera input.
 
 ---
 
-### Q2: Where is the data saved, and is there sample Cobot data?
-> **DATA LOCATION**: **`/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/`**
-> 
-> We have provided a ready-to-use sample dataset file:
-> **`/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/cobot_vla_sample_dataset.json`**
-> 
-> It contains **3 real Cobot trajectory data points** covering:
-> - **Joint Angles & Velocities**: Exact 6-DOF UR5 joint names (`joint_1` through `joint_6`).
-> - **Language Prompts**: *"reach and touch the target red object"*, *"pick up the blue cylinder from table"*, and *"move end-effector to home position"*.
-> - **Camera Meta**: $640 \times 480$ RGB camera rendering data.
+## Prerequisites
+Before running any scripts, ensure you are inside the IsaacLab docker container or your activated virtual environment, and change your directory to the workspace root:
 
----
-
-### Q3: Where is the 1-Click Third-Party Helper Suite?
-> **HELPER SUITE LOCATION**: **`/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/third_party/vla_tools/`**
-> 
-> Just like `third_party/retarget_tools/` provides 1-click motion capture processing for Humanoids, `third_party/vla_tools/` provides 1-click VLA execution:
-
-> 
-> 1. **`third_party/vla_tools/run_vla_pipeline.sh`**: 1-click master script that inspects data, loads pre-trained VLA weights, fine-tunes the policy, and runs closed-loop inference!
-> 2. **`third_party/vla_tools/dataset_inspector.py`**: Visual CLI inspector for dataset trajectory telemetry and joint bounds.
-
----
-
-## 2. 1-Click Execution Guide
-
-### Option 1: Run the 1-Click Third-Party Pipeline (Super Easy!)
 ```bash
-bash /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/third_party/vla_tools/run_vla_pipeline.sh \
-    pi0 \
-    /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/cobot_vla_sample_dataset.json
+# Example if using the native environment:
+source isaac_sim51_lab/bin/activate
+cd ~/IsaacLab  # Or wherever your workspace root is located
+```
+*Note: All paths in this guide assume you are executing from the workspace root.*
+
+---
+
+## Phase 1: Data Collection
+
+To train a VLA, you first need data. The data collector spins up the IsaacLab simulator, runs a scripted or RL expert policy, and records the RGB camera feed and the expert's actions.
+
+### How to Run
+```bash
+python core/source/cobot/vla/dataset_collector.py \
+    --output core/data/vla/cobot_vla_dataset.h5 \
+    --episodes 50
 ```
 
-### Option 2: Inspect Dataset Telemetry
-```bash
-python3 /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/third_party/vla_tools/dataset_inspector.py \
-    --dataset /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/cobot_vla_sample_dataset.json
-```
+### Expected Input & Output
+- **Input**: The script loads the `CobotEnvCfg_VLA` environment (which includes an RGB camera) and executes a scripted expert policy to reach and grasp.
+- **Output**: Generates an HDF5 dataset file at `core/data/vla/cobot_vla_dataset.h5`.
+- **Dataset Contents**: Each episode contains:
+  - `image`: The RGB camera feed `[Time, Height, Width, 3]`.
+  - `actions`: The target joint commands `[Time, 22]`.
+  - `joint_pos` & `joint_vel`: Robot proprioception `[Time, 22]`.
+  - `language_prompt`: The text instruction (e.g., "reach and touch the target red object").
 
-### Option 3: Fine-Tune VLA Models Manually
+---
+
+## Phase 2: Offline Training (Fine-Tuning)
+
+Once you have your `.h5` dataset, you need to train the model. Because training a VLA from scratch takes weeks, we download pre-trained weights (e.g., `pi0_ur5`) and **fine-tune** them on your dataset.
+
+*Note: This phase does not require the IsaacLab simulator to be running.*
+
+### How to Run
 ```bash
-python3 /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/source/cobot/vla/train_vla.py \
+python core/source/cobot/vla/train_vla.py \
     --model pi0 \
     --pretrained_hub lerobot/pi0_ur5 \
-    --dataset /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/cobot_vla_sample_dataset.json \
-    --epochs 5
+    --dataset core/data/vla/cobot_vla_dataset.h5 \
+    --epochs 10 \
+    --output core/logs/vla/pi0_cobot_policy.pt
 ```
 
-### Option 4: Closed-Loop Real-Time Inference
+### Expected Input & Output
+- **Input**: 
+  - The `.h5` dataset generated in Phase 1.
+  - Pre-trained base weights downloaded automatically from HuggingFace (`lerobot/pi0_ur5`).
+- **Output**: 
+  - A fine-tuned PyTorch checkpoint file saved to `core/logs/vla/pi0_cobot_policy.pt`. This file contains the updated neural network weights.
+
+---
+
+## Phase 3: Closed-Loop Inference
+
+Now that the VLA model is fine-tuned, we can deploy it back into the simulation to test it. The simulator will feed live RGB images to the VLA, and the VLA will output joint actions.
+
+### How to Run
 ```bash
-python3 /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/source/cobot/vla/inference_vla.py \
+python core/source/cobot/vla/inference_vla.py \
     --model pi0 \
+    --ckpt core/logs/vla/pi0_cobot_policy.pt \
     --prompt "reach and touch target red object"
 ```
 
+### Expected Input & Output
+- **Input**: 
+  - The trained `.pt` checkpoint from Phase 2.
+  - Live RGB frames captured from the simulator's camera during execution.
+  - The text `--prompt` defining the task.
+- **Output**: 
+  - The robot will attempt to execute the task autonomously using only the camera feed and the prompt.
+  - Log output to the terminal showing the predicted joint actions at each step.
+
 ---
 
-## 3. Sub-Module File Organization
+## Sub-Module File Organization
 
-```
-core/data/vla/                                # Master VLA Data Directory
-├── cobot_vla_sample_dataset.json             # 3 sample trajectory data points for joint_1..joint_6
-└── checkpoints/                              # Saved fine-tuned model weights (.pt)
-
-third_party/vla_tools/                        # 1-Click Helper Tools Directory
-├── dataset_inspector.py                      # CLI dataset breakdown & inspector
-└── run_vla_pipeline.sh                       # 1-click dataset inspection -> fine-tune -> inference
-
+```text
 core/source/cobot/vla/                        # VLA Model Implementation Directory
-├── __init__.py                               # Python sub-package export
-├── dataset_collector.py                      # Multi-modal trajectory demonstrator
-├── pi0_model.py                              # Physical Intelligence pi0 / pi0.5 Flow Matching Policy
-├── smol_vla_model.py                         # SmolVLA lightweight VLM Policy
-├── act_model.py                              # Action Chunking with Transformers (ACT CVAE) Policy
-├── train_vla.py                              # Pre-trained fine-tuning engine
-├── inference_vla.py                          # Real-time closed-loop evaluation runner
-└── README.md                                 # Master VLA guide (this file)
+├── __init__.py                               
+├── cobot_env_cfg.py                          # VLA environment config (spawns the camera)
+├── dataset_collector.py                      # Phase 1: Collects images/actions into .h5
+├── train_vla.py                              # Phase 2: Trains Neural Network on .h5 data
+├── inference_vla.py                          # Phase 3: Evaluates policy in simulation
+├── pi0_model.py                              # Model Arch: Physical Intelligence pi0
+├── smol_vla_model.py                         # Model Arch: SmolVLA
+├── act_model.py                              # Model Arch: Action Chunking Transformers
+└── README.md                                 # This file
 ```
