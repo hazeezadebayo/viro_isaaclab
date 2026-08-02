@@ -22,7 +22,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.sensors import ContactSensorCfg
 
-from . import mdp
+from .. import mdp
 
 ##
 # Scene definition
