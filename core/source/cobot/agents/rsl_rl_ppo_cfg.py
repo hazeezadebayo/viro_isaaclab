@@ -7,10 +7,9 @@ class CobotCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 20000
     save_interval = 50
     experiment_name = "cobot_ur5e"
+    empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,
-        critic_obs_normalization=False,
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
@@ -36,10 +35,9 @@ class CobotCylinderPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 20000
     save_interval = 50
     experiment_name = "cobot_cylinder_ur5e"
+    empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,
-        critic_obs_normalization=False,
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
@@ -65,10 +63,9 @@ class CobotCylinder2PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 20000
     save_interval = 50
     experiment_name = "cobot_cylinder2_ur5e"
+    empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,
-        critic_obs_normalization=False,
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
