@@ -13,27 +13,6 @@ import os
 import numpy as np
 
 
-# Default joint mapping from TemugeB human skeleton model to IsaacLab Humanoid robot joint names
-HUMAN_TO_HUMANOID_JOINT_MAP = {
-    "pelvis": "pelvis",
-    "left_hip_roll": "left_waist",
-    "right_hip_roll": "right_waist",
-    "left_hip_yaw": "left_thigh_0",
-    "left_hip_pitch": "left_thigh_1",
-    "left_hip_roll_joint": "left_thigh_2",
-    "left_knee": "left_shin",
-    "left_ankle": "left_foot",
-    "right_hip_yaw": "right_thigh_0",
-    "right_hip_pitch": "right_thigh_1",
-    "right_hip_roll_joint": "right_thigh_2",
-    "right_knee": "right_shin",
-    "right_ankle": "right_foot",
-    "left_shoulder": "left_upper_arm",
-    "left_elbow": "left_lower_arm",
-    "right_shoulder": "right_upper_arm",
-    "right_elbow": "right_lower_arm",
-}
-
 # Standard humanoid robot joint ordering matching HUMANOID_CFG
 ROBOT_JOINT_NAMES = [
     "pelvis",
@@ -63,6 +42,29 @@ JOINT_LIMITS = {
     "right_foot": (-0.75, 0.75),
 }
 
+# TemugeB human joint angle vectors are ZXY Euler angles [thetaz, thetax, thetay].
+# Map each humanoid joint to (human joint, Euler component index) with
+# 0 = thetaz (yaw), 1 = thetax (roll), 2 = thetay (pitch).
+JOINT_ANGLE_MAP = {
+    "pelvis": ("hips", 0),
+    "left_waist": ("lefthip", 2),
+    "right_waist": ("righthip", 2),
+    "left_thigh_0": ("lefthip", 0),
+    "left_thigh_1": ("lefthip", 2),
+    "left_thigh_2": ("lefthip", 1),
+    "left_shin": ("leftknee", 2),
+    "left_foot": ("leftfoot", 2),
+    "right_thigh_0": ("righthip", 0),
+    "right_thigh_1": ("righthip", 2),
+    "right_thigh_2": ("righthip", 1),
+    "right_shin": ("rightknee", 2),
+    "right_foot": ("rightfoot", 2),
+    "left_upper_arm": ("leftshoulder", 2),
+    "left_lower_arm": ("leftelbow", 2),
+    "right_upper_arm": ("rightshoulder", 2),
+    "right_lower_arm": ("rightelbow", 2),
+}
+
 
 def retarget_motion_capture(
     input_file: str,
@@ -70,54 +72,54 @@ def retarget_motion_capture(
     fps: float = 60.0,
     smooth_window: int = 3,
 ) -> dict:
-    """Processes TemugeB joint angles dict/json and retargets angles to humanoid robot dimensions.
+    """Processes TemugeB joint angles json and retargets angles to humanoid robot dimensions.
 
     Args:
-        input_file: Path to input joint angles file from joint_angles_calculate.
+        input_file: Path to raw_angles.json produced by calculate_joint_angles.py.
         output_file: Path to output JSON file to save retargeted motion capture data.
         fps: Target frame rate (frames per second).
         smooth_window: Window size for moving average filter smoothing.
 
     Returns:
         Retargeted motion capture dictionary structure.
+
+    Raises:
+        FileNotFoundError: If the input joint angles file does not exist.
+        ValueError: If the input file contains no frames.
     """
     print(f"Loading raw motion capture data from: {input_file}")
 
-    if os.path.exists(input_file):
-        with open(input_file, "r") as f:
-            raw_data = json.load(f)
-    else:
-        print("Input file not found. Generating synthesized retargeted trajectory template...")
-        raw_data = {}
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(
+            f"Input joint angles file not found: {input_file}. "
+            "Run the joint angle calculation stage before retargeting."
+        )
 
-    num_frames = raw_data.get("num_frames", 60)
+    with open(input_file, "r") as f:
+        raw_data = json.load(f)
+
     raw_angles = raw_data.get("angles", {})
+    num_frames = int(raw_data.get("num_frames", 0))
+    if num_frames <= 0:
+        raise ValueError(f"No frames in input joint angles file: {input_file}")
 
     retargeted_positions = []
-    retargeted_velocities = []
 
     # Time series construction
     for t_idx in range(num_frames):
         frame_pos = []
         for joint in ROBOT_JOINT_NAMES:
-            # Map human joint or use fallback zero
-            human_key = next((k for k, v in HUMAN_TO_HUMANOID_JOINT_MAP.items() if v == joint), joint)
-            if human_key in raw_angles and t_idx < len(raw_angles[human_key]):
-                angle_val = float(raw_angles[human_key][t_idx])
-            else:
-                # Default baseline gait generator if key absent
-                t = t_idx / fps
-                if "shin" in joint:
-                    angle_val = 0.2 + 0.1 * np.sin(2 * np.pi * 1.5 * t)
-                elif "thigh_1" in joint:
-                    angle_val = 0.1 * np.cos(2 * np.pi * 1.5 * t)
-                else:
-                    angle_val = 0.0
+            angle_val = 0.0
+            if joint in JOINT_ANGLE_MAP:
+                human_joint, component = JOINT_ANGLE_MAP[joint]
+                series = raw_angles.get(human_joint)
+                if series and t_idx < len(series) and len(series[t_idx]) > component:
+                    angle_val = float(series[t_idx][component])
 
             # Enforce physical joint limits
             if joint in JOINT_LIMITS:
                 min_lim, max_lim = JOINT_LIMITS[joint]
-                angle_val = np.clip(angle_val, min_lim, max_lim)
+                angle_val = float(np.clip(angle_val, min_lim, max_lim))
 
             frame_pos.append(angle_val)
 
@@ -165,7 +167,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         type=str,
-        default="../../data/motion_capture/human_walk_retargeted.json",
+        default="../../../data/motion_capture/human_walk_retargeted.json",
         help="Path to save retargeted output json",
     )
     parser.add_argument("--fps", type=float, default=60.0, help="Frame rate")

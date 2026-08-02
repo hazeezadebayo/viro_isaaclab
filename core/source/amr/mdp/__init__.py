@@ -5,6 +5,4 @@
 
 """This sub-module contains the functions and classes specific to the AMR mobile robot environment."""
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from isaaclab.envs.mdp import *  # noqa: F401, F403

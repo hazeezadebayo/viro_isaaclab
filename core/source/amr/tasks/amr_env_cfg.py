@@ -17,7 +17,6 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import TiledCameraCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
@@ -61,7 +60,7 @@ AMR_BURGER_CFG = ArticulationCfg(
 
 @configclass
 class AmrSceneCfg(InteractiveSceneCfg):
-    """Configuration for terrain scene with AMR mobile robot and visualization camera."""
+    """Configuration for terrain scene with AMR mobile robot."""
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -73,18 +72,6 @@ class AmrSceneCfg(InteractiveSceneCfg):
 
     # AMR Mobile Robot Asset
     robot = AMR_BURGER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
-    # In-scene camera sensor for periodic video recording in headless Docker
-    tiled_camera = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base_link/front_cam",
-        offset=TiledCameraCfg.OffsetCfg(pos=(-1.5, 0.0, 0.8), rot=(0.92388, 0.0, 0.38268, 0.0), convention="world"),
-        data_types=["rgb"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 100.0)
-        ),
-        width=640,
-        height=480,
-    )
 
     light = AssetBaseCfg(
         prim_path="/World/light",
@@ -170,7 +157,7 @@ class TerminationsCfg:
 class AmrEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for Autonomous Mobile Robot Navigation Environment."""
 
-    scene: AmrSceneCfg = AmrSceneCfg(num_envs=4096, env_spacing=4.0, clone_in_fabric=True)
+    scene: AmrSceneCfg = AmrSceneCfg(num_envs=4096, env_spacing=4.0)
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     rewards: RewardsCfg = RewardsCfg()

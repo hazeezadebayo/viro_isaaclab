@@ -3,9 +3,33 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Gym Task Registration for Core Robot Heads (Humanoid, ANYmal, AMR, Cobot)."""
-
+import os
 import gymnasium as gym
+
+# Monkey-patch gym.make to auto-wrap environments with PeriodicUsdExporterWrapper when USD_EXPORT=1
+_original_gym_make = gym.make
+
+def _usd_wrapped_gym_make(*args, **kwargs):
+    env = _original_gym_make(*args, **kwargs)
+    usd_export_env = os.getenv("USD_EXPORT", "0").lower()
+    if usd_export_env in ("1", "true", "yes") or "USD_INTERVAL" in os.environ:
+        try:
+            from core.utils.usd_exporter import PeriodicUsdExporterWrapper
+            interval_s = float(os.getenv("USD_INTERVAL", "1800"))
+            length_s = float(os.getenv("USD_LENGTH", "10"))
+            out_dir = os.getenv("USD_OUT_DIR", "/workspace/core/logs/usd")
+            env = PeriodicUsdExporterWrapper(
+                env,
+                out_dir=out_dir,
+                record_interval_s=interval_s,
+                clip_length_s=length_s,
+                convert_to_mp4=True,
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to auto-wrap environment with PeriodicUsdExporterWrapper: {e}")
+    return env
+
+gym.make = _usd_wrapped_gym_make
 
 # 1. Humanoid Motion Capture Imitation Task
 gym.register(
@@ -42,11 +66,41 @@ gym.register(
 
 # 4. Cobot 6-DOF Manipulator Arm Target Reaching Task
 gym.register(
-    id="Isaac-Cobot-Reaching-v0",
+    id="Isaac-Lift-Cylinder-Cobot-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": "core.source.cobot.tasks.cobot_env_cfg:CobotEnvCfg",
-        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotPPORunnerCfg",
+        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos2_cobot_env_cfg:CobotUR5eCylinderLiftEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinderPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Lift-Cylinder-Cobot-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos2_cobot_env_cfg:CobotUR5eCylinderLiftEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinderPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Lift-Cylinder2-Cobot-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos3_cobot_env_cfg:CobotUR5eCylinderLift2EnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinder2PPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Lift-Cylinder2-Cobot-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.cobot.tasks.joint_pos3_cobot_env_cfg:CobotUR5eCylinderLift2EnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.cobot.agents.rsl_rl_ppo_cfg:CobotCylinder2PPORunnerCfg",
     },
 )

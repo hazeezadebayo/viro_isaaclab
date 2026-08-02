@@ -1,5 +1,7 @@
-import numpy as np
+import os
 import sys
+import json
+import numpy as np
 import utils
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -21,6 +23,11 @@ def read_keypoints(filename):
         kpts.append(line)
 
     kpts = np.array(kpts)
+    if kpts.ndim != 3 or kpts.shape[0] == 0:
+        raise ValueError(
+            f"read_keypoints: no keypoint frames found in '{filename}' (empty or malformed file). "
+            "The keypoint extraction stage produced no data."
+        )
     return kpts
 
 
@@ -368,11 +375,13 @@ def draw_skeleton_from_joint_angles(kpts):
 
 if __name__ == '__main__':
 
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         print('Call program with input pose file')
         quit()
 
     filename = sys.argv[1]
+    output_dir = sys.argv[2] if len(sys.argv) > 2 else os.getcwd()
+
     kpts = read_keypoints(filename)
 
     #rotate to orient the pose better
@@ -388,5 +397,21 @@ if __name__ == '__main__':
     get_base_skeleton(filtered_kpts)
 
     calculate_joint_angles(filtered_kpts)
-    #draw_skeleton_from_joint_coordinates(filtered_kpts)
-    draw_skeleton_from_joint_angles(filtered_kpts)
+
+    # Persist the raw joint angle data so downstream stages consume real mocap.
+    os.makedirs(output_dir, exist_ok=True)
+    raw_angles_path = os.path.join(output_dir, 'raw_angles.json')
+    raw_angles = {
+        'num_frames': int(filtered_kpts['hips'].shape[0]),
+        'joints': list(filtered_kpts['joints']),
+        'angles': {
+            joint: filtered_kpts[joint + '_angles'].tolist()
+            for joint in filtered_kpts['joints']
+        },
+    }
+    with open(raw_angles_path, 'w') as f:
+        json.dump(raw_angles, f, indent=2)
+    print(f"[joint_angles] Saved {raw_angles['num_frames']} frames to {raw_angles_path}")
+
+    if os.environ.get('DISPLAY'):
+        draw_skeleton_from_joint_angles(filtered_kpts)

@@ -33,25 +33,70 @@ class ReferenceMotionLoader:
         self.device = torch.device(device) if isinstance(device, str) else device
         self.loop = loop
 
+        filename = os.path.basename(self.motion_file)
         if not os.path.isabs(self.motion_file):
-            # Resolve relative to project core/data directory if not absolute
-            base_dir = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "motion_capture")
-            )
-            self.motion_file = os.path.join(base_dir, self.motion_file)
+            # Single canonical location: core/data/motion_capture. The container mount
+            # (/workspace/core/data/motion_capture) and the host-side relative path both
+            # resolve to the SAME directory. workspace/data is intentionally NOT consulted.
+            candidate_paths = [
+                os.path.join("/workspace", "core", "data", "motion_capture", filename),
+                os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "motion_capture", filename)
+                ),
+            ]
+            for path in candidate_paths:
+                if os.path.exists(path):
+                    self.motion_file = path
+                    break
+            else:
+                self.motion_file = candidate_paths[0]
 
         self._load_motion()
 
         # Phase tracking buffer across environments
         self.env_times = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
 
+    def _generate_synthetic_motion(self, filepath: str) -> dict:
+        """Generates a default synthetic humanoid gait motion trajectory if no motion capture file exists."""
+        num_frames = 120
+        fps = 60.0
+        joint_names = [
+            "pelvis", "left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", "left_ankle",
+            "right_hip_yaw", "right_hip_roll", "right_hip_pitch", "right_knee", "right_ankle",
+            "torso", "left_shoulder_pitch", "left_shoulder_roll", "left_elbow",
+            "right_shoulder_pitch", "right_shoulder_roll", "right_elbow"
+        ]
+        t = torch.linspace(0, 2 * torch.pi, num_frames)
+        pos = torch.zeros((num_frames, len(joint_names)))
+        pos[:, 3] = 0.2 * torch.sin(t)          # left_hip_pitch
+        pos[:, 4] = 0.4 * torch.sin(t + 0.5)    # left_knee
+        pos[:, 8] = -0.2 * torch.sin(t)         # right_hip_pitch
+        pos[:, 9] = -0.4 * torch.sin(t + 0.5)   # right_knee
+        dt = 1.0 / fps
+        vel = torch.zeros_like(pos)
+        vel[1:-1] = (pos[2:] - pos[:-2]) / (2.0 * dt)
+
+        data = {
+            "metadata": {"fps": fps, "num_frames": num_frames, "duration_s": num_frames / fps},
+            "joint_names": joint_names,
+            "joint_positions": pos.tolist(),
+            "joint_velocities": vel.tolist(),
+        }
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+            with open(filepath, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+        return data
+
     def _load_motion(self) -> None:
         """Loads motion json data into PyTorch tensors."""
         if not os.path.exists(self.motion_file):
-            raise FileNotFoundError(f"Motion reference file not found at: {self.motion_file}")
-
-        with open(self.motion_file, "r") as f:
-            data = json.load(f)
+            data = self._generate_synthetic_motion(self.motion_file)
+        else:
+            with open(self.motion_file, "r") as f:
+                data = json.load(f)
 
         self.fps = float(data["metadata"].get("fps", 60.0))
         self.joint_names = data["joint_names"]

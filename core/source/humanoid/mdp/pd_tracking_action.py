@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import MISSING
 from typing import TYPE_CHECKING, Sequence
 
 import torch
@@ -24,31 +23,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@configclass
-class PDTrackingActionCfg(ActionTermCfg):
-    """Configuration for custom PD tracking action term."""
-
-    class_type: type = None  # Populated at runtime or initialization below
-
-    asset_name: str = "robot"
-    """Name of the articulation asset in the scene. Defaults to 'robot'."""
-
-    joint_names: list[str] = [".*"]
-    """Joint names or regex patterns to target with this action term."""
-
-    kp: float | dict[str, float] = 100.0
-    """Proportional gain (stiffness) for PD controller."""
-
-    kd: float | dict[str, float] = 10.0
-    """Derivative gain (damping) for PD controller."""
-
-    action_scale: float | dict[str, float] = 0.25
-    """Scaling factor applied to the policy residual action offset."""
-
-    clip_effort: float | None = None
-    """Optional maximum effort threshold for clipping computed torques."""
-
-
 class PDTrackingAction(ActionTerm):
     """Action term that computes effort using a PD controller against a reference pose.
 
@@ -59,10 +33,9 @@ class PDTrackingAction(ActionTerm):
         tau = Kp * (q_target - q_robot) - Kd * dq_robot
     """
 
-    cfg: PDTrackingActionCfg
-    """The configuration of the action term."""
+    cfg: "PDTrackingActionCfg"
 
-    def __init__(self, cfg: PDTrackingActionCfg, env: ManagerBasedEnv) -> None:
+    def __init__(self, cfg: "PDTrackingActionCfg", env: ManagerBasedEnv) -> None:
         super().__init__(cfg, env)
 
         self._asset: Articulation = self._env.scene[self.cfg.asset_name]
@@ -126,20 +99,30 @@ class PDTrackingAction(ActionTerm):
     def process_actions(self, actions: torch.Tensor):
         self._raw_actions[:] = actions
 
-        # 1. Fetch q_ref from environment motion loader manager if attached, otherwise default joint pos
+        # 1. Fetch q_ref from environment motion loader if attached, otherwise use default joint pos
         if hasattr(self._env, "motion_loader") and self._env.motion_loader is not None:
             q_ref, _ = self._env.motion_loader.get_current_frame()
-            if q_ref.shape[-1] > self.action_dim:
-                q_ref = q_ref[:, self._joint_ids]
         else:
-            q_ref = self._asset.data.default_joint_pos.torch[:, self._joint_ids]
+            q_ref = self._asset.data.default_joint_pos
+
+        # Align q_ref columns to the full joint count before slicing to joint_ids
+        n_full = self._asset.num_joints
+        if q_ref.shape[-1] > n_full:
+            q_ref = q_ref[:, :n_full]
+        elif q_ref.shape[-1] < n_full:
+            pad = torch.zeros(q_ref.shape[0], n_full - q_ref.shape[-1], device=q_ref.device)
+            q_ref = torch.cat([q_ref, pad], dim=-1)
+
+        # Slice to only the joints this action term controls
+        if not isinstance(self._joint_ids, slice):
+            q_ref = q_ref[:, self._joint_ids]
 
         # 2. Compute target position with residual policy offset
         self._target_pos = q_ref + (self._raw_actions * self._scale)
 
         # 3. Read current joint state
-        current_q = self._asset.data.joint_pos.torch[:, self._joint_ids]
-        current_dq = self._asset.data.joint_vel.torch[:, self._joint_ids]
+        current_q = self._asset.data.joint_pos[:, self._joint_ids]
+        current_dq = self._asset.data.joint_vel[:, self._joint_ids]
 
         # 4. Calculate PD Torque: tau = Kp * (q_target - q) - Kd * dq
         tau = self._kp * (self._target_pos - current_q) - self._kd * current_dq
@@ -152,7 +135,7 @@ class PDTrackingAction(ActionTerm):
 
     def apply_actions(self):
         """Applies computed torques directly to articulation joints."""
-        self._asset.set_joint_effort_target_index(target=self._processed_actions, joint_ids=self._joint_ids)
+        self._asset.set_joint_effort_target(target=self._processed_actions, joint_ids=self._joint_ids)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
@@ -163,5 +146,27 @@ class PDTrackingAction(ActionTerm):
             self._processed_actions[env_ids] = 0.0
 
 
-# Link class type to configuration class
-PDTrackingActionCfg.class_type = PDTrackingAction
+@configclass
+class PDTrackingActionCfg(ActionTermCfg):
+    """Configuration for custom PD tracking action term."""
+
+    # class_type must reference PDTrackingAction AFTER it is defined above.
+    class_type: type = PDTrackingAction
+
+    asset_name: str = "robot"
+    """Name of the articulation asset in the scene. Defaults to 'robot'."""
+
+    joint_names: list[str] = [".*"]
+    """Joint names or regex patterns to target with this action term."""
+
+    kp: float | dict[str, float] = 100.0
+    """Proportional gain (stiffness) for PD controller."""
+
+    kd: float | dict[str, float] = 10.0
+    """Derivative gain (damping) for PD controller."""
+
+    action_scale: float | dict[str, float] = 0.25
+    """Scaling factor applied to the policy residual action offset."""
+
+    clip_effort: float | None = None
+    """Optional maximum effort threshold for clipping computed torques."""

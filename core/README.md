@@ -1,26 +1,10 @@
-# Master Robotics Architecture Guide: Humanoid, ANYmal, AMR, & Cobot
+# Core Robotics Architecture Guide: Humanoid, ANYmal, AMR, & Cobot
 
-An end-to-end, professor-level guide covering first principles, kinematic formulations, MDP terms, headless Docker video visualization, ROS2 integration, and training logs for **Humanoid Bipedal Motion Tracking**, **ANYmal Quadruped Locomotion**, **Autonomous Mobile Robots (AMR)**, and **Cobot 6-DOF Manipulator Arms**.
-
----
-
-## Table of Contents
-1. [First Principles & Kinematic Foundations](#1-first-principles--kinematic-foundations)
-2. [Headless Docker Camera & Universal Video Recording](#2-headless-docker-camera--universal-video-recording)
-3. [ROS2 Integration Infrastructure](#3-ros2-integration-infrastructure)
-4. [Section A: Humanoid Bipedal Motion Imitation](#4-section-a-humanoid-bipedal-motion-imitation)
-5. [Section B: ANYmal Quadruped Locomotion Architecture](#5-section-b-anymal-quadruped-locomotion-architecture)
-6. [Section C: Autonomous Mobile Robot (AMR / TurtleBot3) Navigation](#6-section-c-autonomous-mobile-robot-amr--turtlebot3-navigation)
-7. [Section D: Cobot 6-DOF Manipulator Arm Target Reaching](#7-section-d-cobot-6-dof-manipulator-arm-target-reaching)
-8. [Comprehensive Step-by-Step Usage Guide](#8-comprehensive-step-by-step-usage-guide)
-9. [Log Analysis & TensorBoard Metrics](#9-log-analysis--tensorboard-metrics)
-10. [Troubleshooting & Failure Modes](#10-troubleshooting--failure-modes)
+An end-to-end reference guide covering first principles, kinematic formulations, MDP terms, USD trajectory export, ROS2 integration, and in-container execution for **Humanoid Bipedal Motion Tracking**, **ANYmal Quadruped Locomotion**, **Autonomous Mobile Robots (AMR)**, and **Cobot 6-DOF Manipulator Arms**.
 
 ---
 
-## 1. First Principles & Kinematic Foundations
-
-### Comparison of Robot Kinematic Paradigms
+## 1. Kinematic Foundations & Paradigms
 
 ```
    HUMANOID (Bipedal)       ANYMAL-C (Quadrupedal)    AMR (Differential Drive)   COBOT (6-DOF Arm)
@@ -39,163 +23,183 @@ An end-to-end, professor-level guide covering first principles, kinematic formul
    • PD Torque Control       • ActuatorNet Control    • Speed (v, w) Control    • Joint Position Control
 ```
 
-#### 1. Differential Drive Kinematics (AMR / TurtleBot3)
-$$w_L = \frac{v - \omega \frac{b}{2}}{r}, \qquad w_R = \frac{v + \omega \frac{b}{2}}{r}$$
-Where $r = 0.033 \, \text{m}$ (wheel radius) and $b = 0.160 \, \text{m}$ (wheel base separation).
+---
 
-#### 2. Serial Chain Manipulator Kinematics (Cobot 6-DOF Arm)
-The Cobot arm operates as a serial open kinematic chain of 6 revolute joints $(\theta_1, \theta_2, \theta_3, \theta_4, \theta_5, \theta_6)$. The end-effector pose $\mathbf{T}_{ee} \in SE(3)$ is computed via forward kinematics:
+## 2. In-Container Step-by-Step Execution Guide
 
-$$\mathbf{T}_{ee}(\boldsymbol{\theta}) = \mathbf{A}_1(\theta_1) \mathbf{A}_2(\theta_2) \mathbf{A}_3(\theta_3) \mathbf{A}_4(\theta_4) \mathbf{A}_5(\theta_5) \mathbf{A}_6(\theta_6)$$
+Once you launch the Docker environment on your host machine:
+```powershell
+.\launcher.ps1 build
+.\launcher.ps1 up -Head humanoid -Headless
+```
 
-The policy controls joint target positions to minimize end-effector 3D Euclidean distance error to target position $\mathbf{p}_{\text{target}}$:
+You enter the container shell using:
+```bash
+docker exec -it isaac-sim bash
+```
 
-$$r_{\text{cobot}} = 2.0 \cdot \exp\left(-\frac{\|\mathbf{p}_{\text{ee}} - \mathbf{p}_{\text{target}}\|^2}{\sigma^2}\right) + 5.0 \cdot \mathbb{I}(\|\mathbf{p}_{\text{ee}} - \mathbf{p}_{\text{target}}\| < 0.05)$$
+Once inside the container (`root@docker-desktop:/workspace#`), execute the following commands based on your workflow:
 
 ---
 
-## 2. Headless Docker Camera & Universal Video Recording
+### Step 1: Train an RL Policy Inside Container
 
-### 1. Centralized Video Recorder Location
-The universal video recording utility is located at:
-`/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/utils/video_recorder.py`
+Run Isaac Lab's official training runner (`/isaac-sim/python.sh`) inside the container. Here is the full command with all available input parameters configured:
 
-### 2. Configurable Modes (`mode='video'`, `'ros2'`, `'both'`)
-You can configure the video recorder mode when wrapping your environment:
+```bash
+# Option A: Automated USD & MP4 Video Export (Docker Desktop / WSL2 without Vulkan drivers)
+USD_EXPORT=1 USD_INTERVAL=1800 USD_LENGTH=10 \
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-Humanoid-Imitation-v0 \
+    --headless \
+    --num_envs 16 \
+    --max_iterations 1000 \
+    --seed 42 \
+    --experiment_name humanoid_imitation \
+    --logger tensorboard \
+    --device cuda:0
 
-```python
-from core.utils.video_recorder import PeriodicVideoRecorderWrapper
 
-# Default Mode: 'video' (Direct MP4 video file recording to disk)
-env = PeriodicVideoRecorderWrapper(
-    env,
-    mode="video",               # Default mode: saves MP4 clips to /workspace/data/videos/
-    video_folder="/workspace/data/videos",
-    record_interval_s=3600.0,   # Record 1 clip every 1 hour
-    video_length_s=60.0,         # 1 minute clip duration
-)
+# Option B: Native NVIDIA Vulkan Video Recording (Native Linux / Ubuntu with Vulkan drivers)
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-Humanoid-Imitation-v0 \
+    --headless \
+    --num_envs 16 \
+    --max_iterations 1000 \
+    --seed 42 \
+    --video \
+    --video_length 3600 \
+    --video_interval 108000 \
+    --enable_cameras \
+    --experiment_name humanoid_imitation \
+    --logger tensorboard \
+    --device cuda:0
+```
+
+#### Training Commands for Other Robot Heads:
+```bash
+# ANYmal-C Quadruped
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-Anymal-C-v0 --headless --num_envs 16 --max_iterations 1000
+
+# AMR TurtleBot3 Navigation
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-AMR-Navigation-v0 --headless --num_envs 16 --max_iterations 1000
+
+# Cobot UR5e Manipulator Reaching
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-Lift-Cylinder-Cobot-v0 --headless --num_envs 16 --max_iterations 7000
+```
+
+#### Complete In-Container `train.py` Parameter Reference:
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--task` | `str` | *Required* | Gym task ID (`Isaac-Humanoid-Imitation-v0`, `Isaac-Anymal-C-v0`, `Isaac-AMR-Navigation-v0`, `Isaac-Lift-Cylinder-Cobot-v0`). |
+| `--headless` | `flag` | `False` | Disables GUI viewport for fast headless simulation inside Docker. |
+| `--num_envs` | `int` | `4096` (16 CLI) | Number of parallel simulation environments running on GPU CUDA tensors. |
+| `--max_iterations` | `int` | *From Agent Cfg* | Maximum RL training iterations (e.g. `1000`). |
+| `--seed` | `int` | `42` | Random number generator seed for reproducible training runs. |
+| `--video` | `flag` | `False` | Enables periodic video clip recording during training. |
+| `--video_length` | `int` | `3600` | Duration of each recorded video clip in **simulation steps** (3600 steps = 1 min @ 60Hz). |
+| `--video_interval` | `int` | `108000` | Sim steps between video recording starts (108000 steps = 30 mins @ 60Hz). |
+| `--enable_cameras` | `flag` | `False` | Enables offscreen camera rendering pipelines for video capture. |
+| `--checkpoint` | `str` | `None` | Path to PyTorch `.pt` model file to resume training from a prior checkpoint. |
+| `--experiment_name` | `str` | *From Agent Cfg* | Override directory name under `core/logs/rsl_rl/` where logs are saved. |
+| `--logger` | `str` | `"tensorboard"` | Logging framework (`tensorboard`, `wandb`, `neptune`). |
+| `--device` | `str` | `"cuda:0"` | Target PyTorch device (`cuda:0` or `cpu`). |
+
+> **Checkpoints & Logs Output**: Trained PyTorch policy weights (`model_*.pt`) and TensorBoard metrics automatically save to `/workspace/core/logs/rsl_rl/<experiment>/<run>/` (persisted on your host at `core/logs/rsl_rl/`).
+
+---
+
+### Step 2: Evaluate (Play) a Trained Checkpoint Inside Container
+
+To evaluate a policy checkpoint (`.pt` file) saved during training:
+
+```bash
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/play.py \
+    --task Isaac-Humanoid-Imitation-v0 \
+    --checkpoint ./core/logs/rsl_rl/humanoid/<run>/model_1000.pt
 ```
 
 ---
 
-## 3. ROS2 Integration Infrastructure
+### Step 3: Standalone USD-to-MP4 Video Conversion
+
+To convert any generated `.usda` scene file directly into an `.mp4` video without Isaac Lab dependencies:
+
+```bash
+/isaac-sim/python.sh core/utils/usd_to_mp4.py core/logs/usd/trajectory_t1.usda
+```
+
+> **Output**: The output MP4 file is written to `core/logs/usd/trajectory_t1.mp4`. Both `.usda` and `.mp4` are accessible in host directory `core/logs/usd/`.
+
+---
+
+### Step 4: Video Motion Retargeting (Humanoid Imitation Target)
+
+Generate 3D motion-capture targets (`human_walk_retargeted.json`) from an RGB walking video:
+
+```bash
+# Retarget RGB video to humanoid motion JSON
+bash third_party/retarget_tools/run_retarget.sh \
+    third_party/retarget_tools/bodypose3d/media/cam0_test.mp4 \
+    core/data/motion_capture
+```
+
+> **Output**: Writes JSON target data to `core/data/motion_capture/human_walk_retargeted.json`.
+
+---
+
+### Step 5: Cobot Vision-Language-Action (VLA) Fine-Tuning
+
+Fine-tune pre-trained VLA architectures ($\pi_0$, SmolVLA, ACT) on demonstration datasets:
+
+```bash
+# 1-Click Master VLA Pipeline (Collect -> Fine-Tune -> Inference)
+bash third_party/vla_tools/run_vla_pipeline.sh pi0
+
+# Manual VLA Fine-Tuning Execution
+python3 core/source/cobot/vla/train_vla.py \
+    --model pi0 \
+    --pretrained_hub lerobot/pi0_ur5 \
+    --dataset core/data/vla/cobot_vla_dataset.h5 \
+    --output_dir core/logs/vla
+```
+
+---
+
+## 3. Robot Task Configurations & Parameters
+
+Defaults configured in `core/source/<head>/tasks/*_env_cfg.py` and `agents/rsl_rl_ppo_cfg.py`:
+
+| Head | Registered Gym Task ID | `sim.dt` | `decimation` | `step_dt` | `scene.num_envs` | Output Log Path |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Humanoid** | `Isaac-Humanoid-Imitation-v0` | $1/120\,\text{s}$ | 2 | $1/60\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/humanoid/` |
+| **ANYmal** | `Isaac-Anymal-C-v0` | $1/200\,\text{s}$ | 4 | $1/50\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/anymal/` |
+| **AMR** | `Isaac-AMR-Navigation-v0` | $1/100\,\text{s}$ | 4 | $1/25\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/amr/` |
+| **Cobot** | `Isaac-Lift-Cylinder-Cobot-v0` | $0.01\,\text{s}$ | 2 | $0.02\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/cobot/` |
+
+---
+
+## 4. TensorBoard Live Metrics
+
+TensorBoard monitors all training runs automatically.
+
+- **Host Web Access**: [http://localhost:6006](http://localhost:6006)
+- **Container Path**: `/workspace/core/logs/rsl_rl/`
+
+---
+
+## 5. ROS2 Integration Infrastructure
 
 Bridge subscriptions (`custom_bridge.yaml`) map ROS2 network inputs into `core/source/`:
 - `/cmd_vel` $\to$ AMR & ANYmal speed twist commands.
 - `/cobot/target_pose` $\to$ Cobot end-effector 3D goal.
-- `/cobot/joint_trajectory` $\to$ Cobot joint trajectory overrides.
 - `/humanoid/motion_target` $\to$ Humanoid walking direction target.
 
----
-
-## 4. Section A: Humanoid Bipedal Motion Imitation
-- **Task**: `Isaac-Humanoid-Imitation-v0`
-- **Source**: `core/source/humanoid/`
-
----
-
-## 5. Section B: ANYmal Quadruped Locomotion Architecture
-- **Task**: `Isaac-Anymal-C-v0`
-- **Source**: `core/source/anymal/`
-
----
-
-## 6. Section C: Autonomous Mobile Robot (AMR / TurtleBot3) Navigation
-
-### AMR Architecture (`core/source/amr/`)
-- **Task Name**: `Isaac-AMR-Navigation-v0`
-- **Descriptions**: TurtleBot3 Burger URDF/Xacro, SDF, and DAE mesh geometry in `core/source/amr/descriptions/turtlebot3/`.
-- **MDP Terms**: `DifferentialDriveAction` ([v, w] -> wheel speeds), base velocity & 2D goal displacement observations, target proximity & reach bonus rewards.
-
----
-
-## 7. Section D: Cobot 6-DOF Manipulator Arm Target Reaching
-
-### Cobot Architecture (`core/source/cobot/`)
-- **Task Name**: `Isaac-Cobot-Reaching-v0`
-- **Descriptions**: URDF Xacros (`cobot.xacro`, `cobot_arm.xacro`, `cobot_ros2_control.xacro`, `gripper.xacro`) and DAE meshes (`rdr/`, `ur5/`) in `core/source/cobot/descriptions/`.
-- **MDP Terms**: `CobotArmActionCfg` (Joint position targets for `joint_1` to `joint_6`), end-effector 3D position error observations (`link_6`), exponential reach proximity & goal reach rewards.
-
----
-
-## 8. Comprehensive Step-by-Step Usage Guide
-
-### Phase 1: Launching RL Policy Training for Any Robot Head
-
 ```bash
-# 1. Humanoid Motion Imitation Training
-python /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Humanoid-Imitation-v0 --headless
-
-# 2. ANYmal Quadruped Locomotion Training
-python /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Anymal-C-v0 --headless
-
-# 3. AMR Mobile Robot Navigation Training
-python /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-AMR-Navigation-v0 --headless
-
-# 4. Cobot Manipulator Arm Target Reaching Training
-python /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Cobot-Reaching-v0 --headless
-```
-
-### Phase 2: Launching ROS2 State Publishers (/tf Tree)
-```bash
-# Humanoid
+# Launch ROS2 Robot State Publisher inside container
 ros2 launch viro_ros2_ws robot_state_publisher.launch.py robot_type:=humanoid
-
-# ANYmal
-ros2 launch viro_ros2_ws robot_state_publisher.launch.py robot_type:=anymal
-
-# AMR Mobile Robot
-ros2 launch viro_ros2_ws robot_state_publisher.launch.py robot_type:=amr
-
-# Cobot Arm
-ros2 launch viro_ros2_ws robot_state_publisher.launch.py robot_type:=cobot
 ```
-
-### Phase 3: Sending ROS2 Control Commands
-
-#### A. Teleoperate AMR or ANYmal (/cmd_vel)
-```bash
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.5, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.2}}"
-```
-
-#### B. Command Cobot 3D Target Pose (/cobot/target_pose)
-```bash
-ros2 topic pub /cobot/target_pose geometry_msgs/msg/PoseStamped "{pose: {position: {x: 0.4, y: 0.2, z: 0.5}}}"
-```
-
----
-
-## 9. Log Analysis & TensorBoard Metrics
-
-### Console Log Sample (Cobot Reaching Session)
-
-```text
-------------------------------------------------------------------------------------
- Learning iteration 150 / 1000
-
-               Mean action noise std: 0.52
-               Mean reward / step: 4.1200
-               Mean episode length: 120.00
-               Mean episode reward: 494.40
-
-              - Rewards/target_proximity: 1.9120
-              - Rewards/reach_bonus: 2.2500
-              - Rewards/action_l2: -0.0080
-              - Loss/surrogate: 0.0062
-              - Loss/value: 0.0810
-
- Computation time: 0.62s (FPS: 148200)
-------------------------------------------------------------------------------------
-```
-
----
-
-## 10. Troubleshooting & Failure Modes
-
-1. **Cobot Arm Vibrating Wildly**:
-   - *Cause*: High stiffness/damping ratio in PD actuator configuration.
-   - *Fix*: Verify stiffness `800.0` and damping `40.0` in `core/source/cobot/tasks/cobot_env_cfg.py`.
-
-2. **AMR Spinning in Circles**:
-   - *Cause*: Differential wheel base separation mismatch.
-   - *Fix*: Verify wheel radius `0.033` and wheel base `0.160` in `core/source/amr/mdp/actions.py`.

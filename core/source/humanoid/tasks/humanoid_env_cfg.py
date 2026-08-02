@@ -16,7 +16,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
-import isaaclab_tasks.manager_based.classic.humanoid.mdp as mdp
+from .. import mdp
 
 from isaaclab_assets.robots.humanoid import HUMANOID_CFG  # isort:skip
 
@@ -197,7 +197,7 @@ class HumanoidEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the MuJoCo-style Humanoid walking environment."""
 
     # Scene settings
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=5.0, clone_in_fabric=True)
+    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=5.0)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()

@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Isaac Sim / Lab
+logs/
+core/logs/
+data/
+.vscode/
+.idea/
+*.usd
+*.usda
+*.usdc
+*.urdf
+*.pkl
+*.pt
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+*.code-workspace
+
+# Keep docker/ because it contains the Dockerfiles
+# Keep core/ because it's copied into the image

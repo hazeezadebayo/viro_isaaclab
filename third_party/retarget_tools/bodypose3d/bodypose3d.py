@@ -1,162 +1,323 @@
+"""
+bodypose3d.py — MediaPipe 1.0.0 Tasks API compatible rewrite.
+
+MediaPipe ≥ 0.10 dropped the legacy `mp.solutions` API entirely.
+This version uses `mediapipe.tasks.python.vision.PoseLandmarker`
+which is the correct API for mediapipe==1.0.0.
+"""
+
 import cv2 as cv
-import mediapipe as mp
 import numpy as np
 import sys
-from utils import DLT, get_projection_matrix, write_keypoints_to_disk
+import os
 
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-mp_pose = mp.solutions.pose
+# MediaPipe 1.0.0 Tasks API
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
+from mediapipe.tasks.python.vision import drawing_utils as mp_drawing
+from mediapipe.tasks.python.vision import drawing_styles as mp_drawing_styles
+
+from utils import DLT, get_projection_matrix, write_keypoints_to_disk
 
 frame_shape = [720, 1280]
 
-#add here if you need more keypoints
+# Pose landmark indices we care about (same as before)
+# MediaPipe Pose landmark IDs:
+# 11=left_shoulder, 12=right_shoulder, 13=left_elbow, 14=right_elbow
+# 15=left_wrist, 16=right_wrist, 23=left_hip, 24=right_hip
+# 25=left_knee, 26=right_knee, 27=left_ankle, 28=right_ankle
 pose_keypoints = [16, 14, 12, 11, 13, 15, 24, 23, 25, 26, 27, 28]
 
+# ─── Locate the PoseLandmarker model ────────────────────────────────────────
+# Try bundled model path first, then fall back to downloading
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_MODEL_CANDIDATES = [
+    os.path.join(_SCRIPT_DIR, "pose_landmarker_lite.task"),
+    os.path.join(_SCRIPT_DIR, "pose_landmarker_full.task"),
+    os.path.join(_SCRIPT_DIR, "pose_landmarker_heavy.task"),
+    "/workspace/core/data/pose_landmarker_lite.task",
+    "/workspace/core/data/pose_landmarker_full.task",
+]
+
+_MODEL_PATH = None
+for _candidate in _MODEL_CANDIDATES:
+    if os.path.isfile(_candidate):
+        _MODEL_PATH = _candidate
+        break
+
+if _MODEL_PATH is None:
+    # Download lite model automatically to /workspace/core/data/
+    import urllib.request
+    _DOWNLOAD_DIR = "/workspace/core/data" if os.path.isdir("/workspace/core/data") else _SCRIPT_DIR
+    _MODEL_PATH = os.path.join(_DOWNLOAD_DIR, "pose_landmarker_lite.task")
+    _MODEL_URL = (
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+        "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+    )
+    print(f"[bodypose3d] Downloading PoseLandmarker model to {_MODEL_PATH} ...")
+    urllib.request.urlretrieve(_MODEL_URL, _MODEL_PATH)
+    print("[bodypose3d] Download complete.")
+
+print(f"[bodypose3d] Using model: {_MODEL_PATH}")
+
+
+def _has_display():
+    """Return True when an interactive display is available for cv2.imshow."""
+    if os.environ.get("NO_GUI") in ("1", "true", "True"):
+        return False
+    if sys.platform.startswith("win"):
+        return True
+    return bool(os.environ.get("DISPLAY"))
+
+
+def _extract_world_keypoints_from_result(result):
+    """Extract normalized 3D world landmarks for our target pose_keypoints (monocular mode)."""
+    frame_keypoints = []
+    if result.pose_world_landmarks and len(result.pose_world_landmarks) > 0:
+        landmarks = result.pose_world_landmarks[0]
+        for i in pose_keypoints:
+            if i < len(landmarks):
+                lm = landmarks[i]
+                frame_keypoints.append([float(lm.x), float(lm.y), float(lm.z)])
+            else:
+                frame_keypoints.append([0.0, 0.0, 0.0])
+    else:
+        frame_keypoints = [[0.0, 0.0, 0.0]] * len(pose_keypoints)
+    return frame_keypoints
+
+
+def _extract_keypoints_from_result(result, frame):
+    """Extract pixel coordinates for our target pose_keypoints from a PoseLandmarker result."""
+    frame_keypoints = []
+    h, w = frame.shape[:2]
+
+    if result.pose_landmarks and len(result.pose_landmarks) > 0:
+        landmarks = result.pose_landmarks[0]  # first detected person
+        for i in pose_keypoints:
+            if i < len(landmarks):
+                lm = landmarks[i]
+                pxl_x = int(round(lm.x * w))
+                pxl_y = int(round(lm.y * h))
+                cv.circle(frame, (pxl_x, pxl_y), 3, (0, 0, 255), -1)
+                frame_keypoints.append([pxl_x, pxl_y])
+            else:
+                frame_keypoints.append([-1, -1])
+    else:
+        frame_keypoints = [[-1, -1]] * len(pose_keypoints)
+
+    return frame_keypoints
+
+
 def run_mp(input_stream1, input_stream2, P0, P1):
-    #input video stream
     cap0 = cv.VideoCapture(input_stream1)
     cap1 = cv.VideoCapture(input_stream2)
     caps = [cap0, cap1]
 
-    #set camera resolution if using webcam to 1280x720. Any bigger will cause some lag for hand detection
+    show = _has_display()
+
     for cap in caps:
         cap.set(3, frame_shape[1])
         cap.set(4, frame_shape[0])
 
-    #create body keypoints detector objects.
-    pose0 = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-    pose1 = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    # Build PoseLandmarker options (VIDEO mode for frame-by-frame processing)
+    base_options = mp_python.BaseOptions(model_asset_path=_MODEL_PATH)
+    options = mp_vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=mp_vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
 
-    #containers for detected keypoints for each camera. These are filled at each frame.
-    #This will run you into memory issue if you run the program without stop
     kpts_cam0 = []
     kpts_cam1 = []
     kpts_3d = []
-    while True:
 
-        #read frames from stream
-        ret0, frame0 = cap0.read()
-        ret1, frame1 = cap1.read()
+    with mp_vision.PoseLandmarker.create_from_options(options) as landmarker0, \
+         mp_vision.PoseLandmarker.create_from_options(options) as landmarker1:
 
-        if not ret0 or not ret1: break
+        frame_idx = 0
+        while True:
+            ret0, frame0 = cap0.read()
+            ret1, frame1 = cap1.read()
 
-        #crop to 720x720.
-        #Note: camera calibration parameters are set to this resolution.If you change this, make sure to also change camera intrinsic parameters
-        if frame0.shape[1] != 720:
-            frame0 = frame0[:,frame_shape[1]//2 - frame_shape[0]//2:frame_shape[1]//2 + frame_shape[0]//2]
-            frame1 = frame1[:,frame_shape[1]//2 - frame_shape[0]//2:frame_shape[1]//2 + frame_shape[0]//2]
+            if not ret0 or not ret1:
+                break
 
-        # the BGR image to RGB.
-        frame0 = cv.cvtColor(frame0, cv.COLOR_BGR2RGB)
-        frame1 = cv.cvtColor(frame1, cv.COLOR_BGR2RGB)
+            # Crop to 720×720
+            if frame0.shape[1] != 720:
+                frame0 = frame0[:, frame_shape[1]//2 - frame_shape[0]//2:frame_shape[1]//2 + frame_shape[0]//2]
+                frame1 = frame1[:, frame_shape[1]//2 - frame_shape[0]//2:frame_shape[1]//2 + frame_shape[0]//2]
 
-        # To improve performance, optionally mark the image as not writeable to
-        # pass by reference.
-        frame0.flags.writeable = False
-        frame1.flags.writeable = False
-        results0 = pose0.process(frame0)
-        results1 = pose1.process(frame1)
+            # Convert BGR→RGB for MediaPipe
+            rgb0 = cv.cvtColor(frame0, cv.COLOR_BGR2RGB)
+            rgb1 = cv.cvtColor(frame1, cv.COLOR_BGR2RGB)
 
-        #reverse changes
-        frame0.flags.writeable = True
-        frame1.flags.writeable = True
-        frame0 = cv.cvtColor(frame0, cv.COLOR_RGB2BGR)
-        frame1 = cv.cvtColor(frame1, cv.COLOR_RGB2BGR)
+            timestamp_ms = int(frame_idx * 1000 / 30)  # assume 30 fps
 
-        #check for keypoints detection
-        frame0_keypoints = []
-        if results0.pose_landmarks:
-            for i, landmark in enumerate(results0.pose_landmarks.landmark):
-                if i not in pose_keypoints: continue #only save keypoints that are indicated in pose_keypoints
-                pxl_x = landmark.x * frame0.shape[1]
-                pxl_y = landmark.y * frame0.shape[0]
-                pxl_x = int(round(pxl_x))
-                pxl_y = int(round(pxl_y))
-                cv.circle(frame0,(pxl_x, pxl_y), 3, (0,0,255), -1) #add keypoint detection points into figure
-                kpts = [pxl_x, pxl_y]
-                frame0_keypoints.append(kpts)
-        else:
-            #if no keypoints are found, simply fill the frame data with [-1,-1] for each kpt
-            frame0_keypoints = [[-1, -1]]*len(pose_keypoints)
+            mp_image0 = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb0)
+            mp_image1 = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb1)
 
-        #this will keep keypoints of this frame in memory
-        kpts_cam0.append(frame0_keypoints)
+            result0 = landmarker0.detect_for_video(mp_image0, timestamp_ms)
+            result1 = landmarker1.detect_for_video(mp_image1, timestamp_ms)
 
-        frame1_keypoints = []
-        if results1.pose_landmarks:
-            for i, landmark in enumerate(results1.pose_landmarks.landmark):
-                if i not in pose_keypoints: continue
-                pxl_x = landmark.x * frame1.shape[1]
-                pxl_y = landmark.y * frame1.shape[0]
-                pxl_x = int(round(pxl_x))
-                pxl_y = int(round(pxl_y))
-                cv.circle(frame1,(pxl_x, pxl_y), 3, (0,0,255), -1)
-                kpts = [pxl_x, pxl_y]
-                frame1_keypoints.append(kpts)
+            frame0_keypoints = _extract_keypoints_from_result(result0, frame0)
+            frame1_keypoints = _extract_keypoints_from_result(result1, frame1)
 
-        else:
-            #if no keypoints are found, simply fill the frame data with [-1,-1] for each kpt
-            frame1_keypoints = [[-1, -1]]*len(pose_keypoints)
+            kpts_cam0.append(frame0_keypoints)
+            kpts_cam1.append(frame1_keypoints)
 
-        #update keypoints container
-        kpts_cam1.append(frame1_keypoints)
+            # Triangulate 3D positions
+            frame_p3ds = []
+            for uv1, uv2 in zip(frame0_keypoints, frame1_keypoints):
+                if uv1[0] == -1 or uv2[0] == -1:
+                    _p3d = [-1, -1, -1]
+                else:
+                    _p3d = DLT(P0, P1, uv1, uv2)
+                frame_p3ds.append(_p3d)
 
-        #calculate 3d position
-        frame_p3ds = []
-        for uv1, uv2 in zip(frame0_keypoints, frame1_keypoints):
-            if uv1[0] == -1 or uv2[0] == -1:
-                _p3d = [-1, -1, -1]
-            else:
-                _p3d = DLT(P0, P1, uv1, uv2) #calculate 3d position of keypoint
-            frame_p3ds.append(_p3d)
+            frame_p3ds = np.array(frame_p3ds).reshape((12, 3))
+            kpts_3d.append(frame_p3ds)
 
-        '''
-        This contains the 3d position of each keypoint in current frame.
-        For real time application, this is what you want.
-        '''
-        frame_p3ds = np.array(frame_p3ds).reshape((12, 3))
-        kpts_3d.append(frame_p3ds)
+            if show:
+                cv.imshow('cam1', frame1)
+                cv.imshow('cam0', frame0)
 
-        # uncomment these if you want to see the full keypoints detections
-        # mp_drawing.draw_landmarks(frame0, results0.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-        #                           landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
-        #
-        # mp_drawing.draw_landmarks(frame1, results1.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-        #                           landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+            k = cv.waitKey(1) if show else -1
+            if k & 0xFF == 27:
+                break
 
-        cv.imshow('cam1', frame1)
-        cv.imshow('cam0', frame0)
+            frame_idx += 1
 
-        k = cv.waitKey(1)
-        if k & 0xFF == 27: break #27 is ESC key.
-
-
-    cv.destroyAllWindows()
+    if show:
+        cv.destroyAllWindows()
     for cap in caps:
         cap.release()
 
-
     return np.array(kpts_cam0), np.array(kpts_cam1), np.array(kpts_3d)
 
+
+def run_mp_monocular(input_stream):
+    """Single-camera mode: emit MediaPipe Pose world landmarks as the 3D keypoints.
+
+    World landmarks are hip-centered and scale-normalized, so the downstream
+    joint-angle stage (which normalizes by bone lengths) works unchanged.
+    """
+    cap0 = cv.VideoCapture(input_stream)
+    cap0.set(3, frame_shape[1])
+    cap0.set(4, frame_shape[0])
+
+    show = _has_display()
+
+    base_options = mp_python.BaseOptions(model_asset_path=_MODEL_PATH)
+    options = mp_vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=mp_vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+
+    kpts_3d = []
+
+    with mp_vision.PoseLandmarker.create_from_options(options) as landmarker:
+        frame_idx = 0
+        while True:
+            ret0, frame0 = cap0.read()
+            if not ret0:
+                break
+
+            # Crop to 720×720
+            if frame0.shape[1] != 720:
+                frame0 = frame0[:, frame_shape[1] // 2 - frame_shape[0] // 2:frame_shape[1] // 2 + frame_shape[0] // 2]
+
+            rgb0 = cv.cvtColor(frame0, cv.COLOR_BGR2RGB)
+            timestamp_ms = int(frame_idx * 1000 / 30)  # assume 30 fps
+
+            mp_image0 = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb0)
+            result0 = landmarker.detect_for_video(mp_image0, timestamp_ms)
+
+            frame_3d = np.array(_extract_world_keypoints_from_result(result0)).reshape((12, 3))
+            kpts_3d.append(frame_3d)
+
+            if show:
+                cv.imshow('cam0', frame0)
+                k = cv.waitKey(1)
+                if k & 0xFF == 27:
+                    break
+
+            frame_idx += 1
+
+    if show:
+        cv.destroyAllWindows()
+    cap0.release()
+
+    return np.array(kpts_3d)
+
+
 if __name__ == '__main__':
+    import argparse
 
-    #this will load the sample videos if no camera ID is given
-    input_stream1 = 'media/cam0_test.mp4'
-    input_stream2 = 'media/cam1_test.mp4'
+    parser = argparse.ArgumentParser(description='3D body pose keypoint estimation (stereo or monocular).')
+    parser.add_argument(
+        'inputs', nargs='+',
+        help='1 input = monocular (MediaPipe Pose world landmarks); '
+             '2 inputs = stereo (DLT triangulation from two calibrated cameras).',
+    )
+    parser.add_argument(
+        '--out_dir', default=None,
+        help='Directory to write keypoint .dat files. Defaults to /workspace/core/data/motion_capture when available.',
+    )
+    args = parser.parse_args()
 
-    #put camera id as command line arguements
-    if len(sys.argv) == 3:
-        input_stream1 = int(sys.argv[1])
-        input_stream2 = int(sys.argv[2])
+    if args.out_dir:
+        _out_dir = args.out_dir
+    else:
+        _out_dir = "/workspace/core/data/motion_capture" if os.path.isdir("/workspace/core/data") else "/tmp"
+    os.makedirs(_out_dir, exist_ok=True)
 
-    #get projection matrices
-    P0 = get_projection_matrix(0)
-    P1 = get_projection_matrix(1)
+    if len(args.inputs) >= 2:
+        print(f"[bodypose3d] Mode: stereo ({len(args.inputs)} inputs)")
+        try:
+            input_stream1 = int(args.inputs[0])
+        except ValueError:
+            input_stream1 = args.inputs[0]
 
-    kpts_cam0, kpts_cam1, kpts_3d = run_mp(input_stream1, input_stream2, P0, P1)
+        try:
+            input_stream2 = int(args.inputs[1])
+        except ValueError:
+            input_stream2 = args.inputs[1]
 
-    #this will create keypoints file in current working folder
-    write_keypoints_to_disk('kpts_cam0.dat', kpts_cam0)
-    write_keypoints_to_disk('kpts_cam1.dat', kpts_cam1)
-    write_keypoints_to_disk('kpts_3d.dat', kpts_3d)
+        P0 = get_projection_matrix(0)
+        P1 = get_projection_matrix(1)
+
+        kpts_cam0, kpts_cam1, kpts_3d = run_mp(input_stream1, input_stream2, P0, P1)
+        if kpts_3d.shape[0] == 0:
+            raise SystemExit(
+                f"[bodypose3d] ERROR: no frames captured from '{input_stream1}' / '{input_stream2}'. "
+                "Check that the videos exist and OpenCV can decode them."
+            )
+
+        write_keypoints_to_disk(os.path.join(_out_dir, 'kpts_cam0.dat'), kpts_cam0)
+        write_keypoints_to_disk(os.path.join(_out_dir, 'kpts_cam1.dat'), kpts_cam1)
+        write_keypoints_to_disk(os.path.join(_out_dir, 'kpts_3d.dat'), kpts_3d)
+        print(f"[bodypose3d] Keypoints saved to {_out_dir}/")
+    else:
+        print(f"[bodypose3d] Mode: monocular ({len(args.inputs)} input)")
+        try:
+            input_stream = int(args.inputs[0])
+        except ValueError:
+            input_stream = args.inputs[0]
+
+        kpts_3d = run_mp_monocular(input_stream)
+        if kpts_3d.shape[0] == 0:
+            raise SystemExit(
+                f"[bodypose3d] ERROR: no frames captured from '{input_stream}'. "
+                "Cannot write empty keypoints."
+            )
+
+        write_keypoints_to_disk(os.path.join(_out_dir, 'kpts_3d.dat'), kpts_3d)
+        print(f"[bodypose3d] Monocular keypoints saved to {_out_dir}/")

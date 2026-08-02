@@ -1,21 +1,12 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""
-========================================= IMPORTANT NOTICE =========================================
-
-This file defines the agent configuration used to generate the "Training Performance" table in
-https://isaac-sim.github.io/IsaacLab/main/source/overview/reinforcement-learning/rl_frameworks.html.
-Ensure that the configurations for the other RL libraries are updated if this one is modified.
-
-====================================================================================================
-"""
+"""RSL-RL PPO runner configuration for Humanoid motion imitation."""
 
 from isaaclab.utils.configclass import configclass
-
-from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
 
 
 @configclass
@@ -24,16 +15,12 @@ class HumanoidPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 1000
     save_interval = 100
     experiment_name = "humanoid"
-    actor = RslRlMLPModelCfg(
-        hidden_dims=[400, 200, 100],
+    empirical_normalization = False
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_hidden_dims=[400, 200, 100],
+        critic_hidden_dims=[400, 200, 100],
         activation="elu",
-        obs_normalization=True,
-        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
-    )
-    critic = RslRlMLPModelCfg(
-        hidden_dims=[400, 200, 100],
-        activation="elu",
-        obs_normalization=True,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=2.0,

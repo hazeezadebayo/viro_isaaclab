@@ -22,9 +22,12 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
       - ../core:/workspace/core:ro
+      # Writable exceptions to read-only core mount: core/data and core/logs. Must appear AFTER the read-only parent mount.
+      - ../core/data:/workspace/core/data
+      - ../core/logs:/workspace/core/logs
+      - ../core/logs:/workspace/logs
+      - ../third_party:/workspace/third_party:ro
       - ../core/source/${HEAD_NAME:-humanoid}:/workspace/head:ro
-      - ../workspace/logs:/workspace/logs
-      - ../workspace/data:/workspace/data
       - isaac-kit-cache:/isaac-sim/kit/cache
       - isaac-ov-cache:/root/.cache/ov
       - isaac-pip-cache:/root/.cache/pip
@@ -41,6 +44,17 @@ services:
               capabilities: [gpu]
     entrypoint: /usr/local/bin/isaac-ros-entrypoint.sh
     command: sleep infinity
+    restart: unless-stopped
+
+  tensorboard:
+    image: isaac-rl-studio:2.1.0-humble
+    container_name: ${TB_CONTAINER_NAME:-isaac-tensorboard}
+    network_mode: ${NETWORK_MODE:-host}
+    volumes:
+      - ../core/logs:/workspace/core/logs
+      - ../core/logs:/workspace/logs
+    entrypoint: /usr/local/bin/isaac-ros-entrypoint.sh
+    command: ["python", "-m", "tensorboard.main", "--logdir", "/workspace/core/logs", "--port", "6006", "--bind_all"]
     restart: unless-stopped
 
 volumes:

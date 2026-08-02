@@ -7,15 +7,14 @@
 # ==============================================================================
 # Master 1-Click Pipeline for Cobot Vision-Language-Action (VLA) Fine-Tuning
 # Supports Models: pi0, pi0.5, smolvla, act
-# Output Models Directory : /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/workspace/models/vla
-# Output Logs Directory   : /home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/workspace/logs/vla
+# Output Logs & Models Directory : /workspace/core/logs/vla
 # ==============================================================================
 
 set -e
 
 MODEL_TYPE="${1:-pi0}"
-DATASET_PATH="${2:-/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/core/data/vla/cobot_vla_sample_dataset.json}"
-OUTPUT_DIR="${3:-/home/azeez/ws/dev_env/py_code/projects/viro_isaaclab/workspace/models/vla}"
+DATASET_PATH="${2:-/workspace/core/data/vla/cobot_vla_dataset.h5}"
+OUTPUT_DIR="${3:-/workspace/core/logs/vla}"
 PRETRAINED_HUB="${4:-lerobot/pi0_ur5}"
 
 echo "=================================================================="

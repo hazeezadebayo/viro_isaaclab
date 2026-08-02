@@ -6,14 +6,26 @@ Isaac RL Studio launcher for Windows PowerShell.
 
 param(
     [Parameter(Position=0)]
-    [ValidateSet("build","up","logs","clean","kill")]
+    [ValidateSet("build","up","logs","clean","kill","train","play","export")]
     [string]$Command,
     
     [string]$Head = "humanoid",
     [string]$EnvFile,
     [switch]$NoGui,
     [switch]$Headless,
-    [string]$Task
+    [string]$Task,
+    [int]$NumEnvs = 16,
+    [int]$MaxIterations = 0,
+    [string]$Checkpoint,
+    [bool]$Video = $true,
+    [double]$VideoLengthMin = 1.0,
+    [double]$VideoIntervalMin = 30.0,
+    [switch]$UsdExport,
+    [double]$UsdIntervalSec = 1800.0,
+    [double]$UsdLengthSec = 10.0,
+    [switch]$RealTime,
+    [double]$ExportSeconds = 5.0,
+    [string]$ExportFormat = "usda"
 )
 
 $ErrorActionPreference = "Continue"
@@ -24,7 +36,16 @@ $HeadTaskMap = @{
     "humanoid" = "Isaac-Humanoid-Imitation-v0"
     "anymal"   = "Isaac-Anymal-C-v0"
     "amr"      = "Isaac-AMR-Navigation-v0"
-    "cobot"    = "Isaac-Cobot-Reaching-v0"
+    "cobot"    = "Isaac-Lift-Cylinder-Cobot-v0"
+}
+
+# Simulation step time (sim.dt * decimation) per head, used to convert video clip
+# lengths/intervals from seconds to simulation steps for the --video flags.
+$SimDtMap = @{
+    "humanoid" = (1.0 / 60.0)
+    "anymal"   = (1.0 / 50.0)
+    "amr"      = (1.0 / 25.0)
+    "cobot"    = (1.0 / 50.0)
 }
 
 function Write-Info($msg) { Write-Host $msg -ForegroundColor Green }
@@ -38,6 +59,9 @@ Usage: .\launcher.ps1 <command> [options]
 Commands:
   build                        Build Docker simulation image
   up                           Start headless simulation container
+  train                        Run RL training in-container (built-in --video recording)
+  play                         Run trained-policy play in-container (built-in --video recording)
+  export                       Bake a trained-policy rollout into an animated USD file
   logs [service]               Show logs (default: isaac-sim)
   clean                        Remove containers, images, volumes
   kill                         Stop and remove containers
@@ -48,12 +72,34 @@ Options for 'up':
   -Headless                    Run in headless container mode (Camera & ROS2 active)
   -Task <task>                 IsaacLab task override
 
+Options for 'train' / 'play':
+  -Head <name>                 Head name (humanoid | anymal | amr | cobot)
+  -Task <task>                 IsaacLab task override (default: task mapped to -Head)
+  -NumEnvs <int>               Number of parallel environments (default: 16)
+  -MaxIterations <int>         Training iterations (train; default: runner cfg value)
+  -Checkpoint <path>           Checkpoint relative to /workspace (play)
+  -Video <bool>                Enable built-in --video recording (default: true)
+  -VideoLengthMin <minutes>    Clip length (default: 1 minute)
+  -VideoIntervalMin <minutes>  Steps between clip starts (default: 30 minutes)
+  -RealTime                    Run play in real time
+
+Options for 'export':
+  -Head <name>                 Head name (humanoid | anymal | amr | cobot)
+  -Task <task>                 IsaacLab task override (default: task mapped to -Head)
+  -Checkpoint <path>           Checkpoint relative to /workspace (required)
+  -ExportSeconds <seconds>     Rollout duration to export (default: 5)
+  -ExportFormat <fmt>          USD format: usda | usdc | usd (default: usda)
+
 Examples:
   .\launcher.ps1 build
   .\launcher.ps1 up -Head humanoid -Headless
   .\launcher.ps1 up -Head anymal -Headless
   .\launcher.ps1 up -Head amr -Headless
   .\launcher.ps1 up -Head cobot -Headless
+  .\launcher.ps1 train -Head humanoid
+  .\launcher.ps1 train -Head humanoid -VideoLengthMin 2 -VideoIntervalMin 15
+  .\launcher.ps1 play -Head humanoid -Checkpoint ./logs/rsl_rl/humanoid/<run>/model_1000.pt
+  .\launcher.ps1 export -Head humanoid -Checkpoint ./logs/rsl_rl/humanoid/<run>/model_1000.pt -ExportSeconds 5
   .\launcher.ps1 logs
   .\launcher.ps1 kill
 "@
@@ -105,7 +151,7 @@ function Invoke-Up {
     $env:NO_GUI = "1"
 
     Write-Info "Starting headless simulation with head: $Head"
-    Write-Info "In-scene Camera Active -> Saving MP4 to /workspace/data/videos & streaming live to ROS2 /camera/rgb/image_raw"
+    Write-Info "In-scene camera available via built-in '--video' recording (see launcher.ps1 train/play)"
 
     Push-Location (Join-Path $ScriptDir "docker")
     try {
@@ -119,8 +165,123 @@ function Invoke-Up {
     if ($containerId) {
         Write-Info "Container started: $containerId"
         Write-Host "Enter container: docker exec -it $containerId bash"
-        Write-Host "View ROS2 stream: python3 core/ros2_ws/image_listener.py"
-        Write-Host "View logs:       .\launcher.ps1 logs"
+        Write-Host "Train (with video): .\launcher.ps1 train -Head humanoid"
+        Write-Host "View logs:          .\launcher.ps1 logs"
+    }
+}
+
+function Get-StepCount {
+    param([double]$Minutes)
+    $headKey = if ($Head) { $Head.ToLower() } else { "humanoid" }
+    $dt = $SimDtMap[$headKey]
+    if (-not $dt) { $dt = 1.0 / 60.0 }
+    return [int][Math]::Round($Minutes * 60.0 / $dt)
+}
+
+function Resolve-Task {
+    $headKey = if ($Head) { $Head.ToLower() } else { "humanoid" }
+    if ($Task) { return $Task }
+    if (-not $HeadTaskMap.ContainsKey($headKey)) {
+        Write-Err "No default task for head: $Head"
+        exit 1
+    }
+    return $HeadTaskMap[$headKey]
+}
+
+function Get-VideoArgs {
+    $videoArgs = @()
+    if ($Video) {
+        $videoArgs += @(
+            "--video",
+            "--video_length", "$(Get-StepCount $VideoLengthMin)",
+            "--video_interval", "$(Get-StepCount $VideoIntervalMin)",
+            "--enable_cameras"
+        )
+    }
+    return $videoArgs
+}
+
+function Invoke-Train {
+    $task = Resolve-Task
+    $python = "/isaac-sim/python.sh"
+    $script = "/workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py"
+
+    $cmdArgs = @("--task", $task, "--headless", "--num_envs", "$NumEnvs")
+    if ($MaxIterations -gt 0) { $cmdArgs += @("--max_iterations", "$MaxIterations") }
+    if ($Checkpoint) { $cmdArgs += @("--checkpoint", $Checkpoint) }
+
+    $execEnv = @()
+    if ($UsdExport) {
+        $intervalSec = if ($UsdIntervalSec -ne 1800.0) { $UsdIntervalSec } else { [int][Math]::Round($VideoIntervalMin * 60.0) }
+        $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
+        $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
+        Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
+    } else {
+        $cmdArgs += Get-VideoArgs
+    }
+
+    Write-Info "Training task '$task' (num_envs=$NumEnvs)"
+    Write-Info "Running from /workspace so logs/videos persist to core/logs/rsl_rl/..."
+
+    Push-Location (Join-Path $ScriptDir "docker")
+    try {
+        docker compose -f $ComposeFile exec @execEnv -w /workspace isaac-sim $python $script @cmdArgs
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Play {
+    if (-not $Checkpoint) {
+        Write-Err "Play requires -Checkpoint <path> (e.g. ./core/logs/rsl_rl/humanoid/<run>/model_1000.pt)"
+        exit 1
+    }
+    $task = Resolve-Task
+    $python = "/isaac-sim/python.sh"
+    $script = "/workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/play.py"
+
+    $cmdArgs = @("--task", $task, "--num_envs", "$NumEnvs", "--checkpoint", $Checkpoint)
+    if ($RealTime) { $cmdArgs += "--real-time" }
+
+    $execEnv = @()
+    if ($UsdExport) {
+        $intervalSec = if ($UsdIntervalSec -ne 1800.0) { $UsdIntervalSec } else { [int][Math]::Round($VideoIntervalMin * 60.0) }
+        $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
+        $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
+        Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
+    } else {
+        $cmdArgs += Get-VideoArgs
+    }
+
+    Write-Info "Playing task '$task' from checkpoint '$Checkpoint'"
+
+    Push-Location (Join-Path $ScriptDir "docker")
+    try {
+        docker compose -f $ComposeFile exec @execEnv -w /workspace isaac-sim $python $script @cmdArgs
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Export {
+    param([string]$UsdPath)
+    if (-not $UsdPath) {
+        Write-Err "Export requires -UsdPath <path> (e.g. ./core/logs/usd/trajectory_t1.usda)"
+        exit 1
+    }
+    $python = "/isaac-sim/python.sh"
+    $script = "/workspace/core/utils/usd_to_mp4.py"
+
+    Write-Info "Converting USD trajectory '$UsdPath' to MP4 video..."
+
+    Push-Location (Join-Path $ScriptDir "docker")
+    try {
+        docker compose -f $ComposeFile exec -w /workspace isaac-sim $python $script $UsdPath
+    }
+    finally {
+        Pop-Location
     }
 }
 
@@ -153,10 +314,15 @@ function Invoke-Kill {
     Write-Info "Containers stopped."
 }
 
+$logsService = if ($args[0]) { $args[0] } else { "isaac-sim" }
+
 switch ($Command) {
     "build" { Invoke-Build }
     "up" { Invoke-Up }
-    "logs" { Invoke-Logs -Service (if ($args[0]) { $args[0] } else { "isaac-sim" }) }
+    "train" { Invoke-Train }
+    "play" { Invoke-Play }
+    "export" { Invoke-Export }
+    "logs" { Invoke-Logs -Service $logsService }
     "clean" { Invoke-Clean }
     "kill" { Invoke-Kill }
     default { Show-Usage }

@@ -21,7 +21,8 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
-import isaaclab_tasks.manager_based.classic.humanoid.mdp as mdp
+from .. import mdp
+from isaaclab_assets.robots.humanoid import HUMANOID_CFG
 from ..mdp.pd_tracking_action import PDTrackingActionCfg
 from ..mdp.motion_loader import ReferenceMotionLoader
 
@@ -45,19 +46,8 @@ class HumanoidImitationSceneCfg(InteractiveSceneCfg):
     )
 
     # robot configuration - internal actuator stiffness/damping set to 0 for custom PD action term
-    robot = mdp.HUMANOID_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot = HUMANOID_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # In-scene camera sensor for periodic video recording (headless Docker visualization)
-    tiled_camera = sim_utils.TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/pelvis/front_cam",
-        offset=sim_utils.TiledCameraCfg.OffsetCfg(pos=(-3.0, 0.0, 1.8), rot=(0.92388, 0.0, 0.38268, 0.0), convention="world"),
-        data_types=["rgb"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 100.0)
-        ),
-        width=640,
-        height=480,
-    )
 
     # lights
     light = AssetBaseCfg(
@@ -146,7 +136,7 @@ class ImitationTerminationsCfg:
 class HumanoidImitationEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for Humanoid Motion Tracking Imitation Environment."""
 
-    scene: HumanoidImitationSceneCfg = HumanoidImitationSceneCfg(num_envs=4096, env_spacing=5.0, clone_in_fabric=True)
+    scene: HumanoidImitationSceneCfg = HumanoidImitationSceneCfg(num_envs=4096, env_spacing=5.0)
     observations: ImitationObservationsCfg = ImitationObservationsCfg()
     actions: ImitationActionsCfg = ImitationActionsCfg()
     rewards: ImitationRewardsCfg = ImitationRewardsCfg()

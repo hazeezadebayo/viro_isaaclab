@@ -17,7 +17,6 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import TiledCameraCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
@@ -26,7 +25,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as isaac_mdp
 from .. import mdp
 
 # Import ANYmal-C robot asset configuration from IsaacLab assets library
-from isaaclab_assets.robots.anybotics import ANYMAL_C_CFG  # isort:skip
+from isaaclab_assets.robots.anymal import ANYMAL_C_CFG  # isort:skip
 
 
 ##
@@ -36,7 +35,7 @@ from isaaclab_assets.robots.anybotics import ANYMAL_C_CFG  # isort:skip
 
 @configclass
 class AnymalSceneCfg(InteractiveSceneCfg):
-    """Configuration for the terrain scene with an ANYmal-C quadruped robot and visualization camera."""
+    """Configuration for terrain scene with an ANYmal-C quadruped robot."""
 
     # Ground plane terrain
     terrain = TerrainImporterCfg(
@@ -49,18 +48,6 @@ class AnymalSceneCfg(InteractiveSceneCfg):
 
     # ANYmal-C quadruped robot asset (12 actuated joints: LF, RF, LH, RH x HAA, HFE, KFE)
     robot = ANYMAL_C_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
-    # In-scene camera sensor for periodic video recording (saves MP4 clips in headless Docker)
-    tiled_camera = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base/front_cam",
-        offset=TiledCameraCfg.OffsetCfg(pos=(-2.0, 0.0, 1.2), rot=(0.92388, 0.0, 0.38268, 0.0), convention="world"),
-        data_types=["rgb"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 100.0)
-        ),
-        width=640,
-        height=480,
-    )
 
     # Lighting
     light = AssetBaseCfg(
@@ -95,13 +82,13 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy network."""
 
-        base_height = ObsTerm(func=mdp.obs.base_pos_z)
+        base_height = ObsTerm(func=mdp.base_pos_z)
         base_lin_vel = ObsTerm(func=isaac_mdp.base_lin_vel)
         base_ang_vel = ObsTerm(func=isaac_mdp.base_ang_vel, scale=0.25)
-        base_yaw_roll = ObsTerm(func=mdp.obs.base_yaw_roll)
-        base_angle_to_target = ObsTerm(func=mdp.obs.base_angle_to_target, params={"target_pos": (1000.0, 0.0, 0.0)})
-        base_up_proj = ObsTerm(func=mdp.obs.base_up_proj)
-        base_heading_proj = ObsTerm(func=mdp.obs.base_heading_proj, params={"target_pos": (1000.0, 0.0, 0.0)})
+        base_yaw_roll = ObsTerm(func=mdp.base_yaw_roll)
+        base_angle_to_target = ObsTerm(func=mdp.base_angle_to_target, params={"target_pos": (1000.0, 0.0, 0.0)})
+        base_up_proj = ObsTerm(func=mdp.base_up_proj)
+        base_heading_proj = ObsTerm(func=mdp.base_heading_proj, params={"target_pos": (1000.0, 0.0, 0.0)})
         joint_pos_norm = ObsTerm(func=isaac_mdp.joint_pos_limit_normalized)
         joint_vel_rel = ObsTerm(func=isaac_mdp.joint_vel_rel, scale=0.1)
 
@@ -193,7 +180,7 @@ class TerminationsCfg:
 class AnymalEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the ANYmal-C quadruped walking environment."""
 
-    scene: AnymalSceneCfg = AnymalSceneCfg(num_envs=4096, env_spacing=4.0, clone_in_fabric=True)
+    scene: AnymalSceneCfg = AnymalSceneCfg(num_envs=4096, env_spacing=4.0)
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     rewards: RewardsCfg = RewardsCfg()

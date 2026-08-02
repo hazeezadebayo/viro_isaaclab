@@ -18,8 +18,8 @@ class AmrPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.8,
-        actor_hidden_dimensions=[128, 128],
-        critic_hidden_dimensions=[128, 128],
+        actor_hidden_dims=[128, 128],
+        critic_hidden_dims=[128, 128],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
