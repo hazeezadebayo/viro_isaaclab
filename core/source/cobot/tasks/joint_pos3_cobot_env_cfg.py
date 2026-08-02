@@ -22,18 +22,21 @@ from isaaclab.sim import (
     CollisionPropertiesCfg,
     PreviewSurfaceCfg,
 )
-from isaaclab_tasks.manager_based.manipulation.lift_allegro import mdp
-from isaaclab_tasks.manager_based.manipulation.lift_allegro.lift3_env_allegro_cfg import BaseLiftEnvCfg
+from .. import mdp
+from .lift3_env_cobot_cfg import BaseLiftEnvCfg
 
 ##
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
+COBOT_UR5E_USD_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../descriptions/ur5e_allegro_R_A2.usd")
+)
+
 COBOT_UR5E_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=os.path.join(os.environ["HOME"],
-                              "IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift_allegro/config/ur5e_allegro/ur5e_allegro_R_A2/ur5e_allegro_R_A2.usd"),
+        usd_path=COBOT_UR5E_USD_PATH,
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

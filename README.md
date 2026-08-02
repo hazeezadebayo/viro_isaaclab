@@ -40,7 +40,7 @@ graph TD
 
 The PowerShell launcher provides 1-click execution for building containers, starting services, running RL training, playing trained checkpoints, and exporting USD scene trajectory rollouts.
 
-#### Core CLI Commands:
+#### Core CLI Commands (Humanoid):
 ```powershell
 # 1. Build Docker Simulation Container
 .\launcher.ps1 build
@@ -60,6 +60,96 @@ The PowerShell launcher provides 1-click execution for building containers, star
 
 # 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
 .\launcher.ps1 play -Head humanoid -Checkpoint ./core/logs/rsl_rl/humanoid/<run>/model_1000.pt -RealTime -UsdExport
+
+# 4. Convert Any Generated USD Stage to MP4 Video
+.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
+
+# 5. Management & Logs
+.\launcher.ps1 logs               # Stream live container logs
+.\launcher.ps1 kill               # Stop running containers
+.\launcher.ps1 clean              # Remove container volumes & images
+```
+
+#### Core CLI Commands (Cobot):
+```powershell
+# 1. Build Docker Simulation Container
+.\launcher.ps1 build
+
+# 2. Start Headless Simulation Container & TensorBoard
+.\launcher.ps1 up -Head cobot -Headless
+
+# 1. Build & Launch Container Stack (Host PowerShell)
+.\launcher.ps1 build
+.\launcher.ps1 up -Head cobot -Headless
+
+# 2. Master Training Command (All Parameters Configured)
+# Options:
+#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head cobot -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+#  - Headless USD & MP4 (Docker Desktop): 
+.\launcher.ps1 train -Head cobot -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+
+# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
+.\launcher.ps1 play -Head cobot -Checkpoint ./core/logs/rsl_rl/cobot/<run>/model_1000.pt -RealTime -UsdExport
+
+# 4. Convert Any Generated USD Stage to MP4 Video
+.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
+
+# 5. Management & Logs
+.\launcher.ps1 logs               # Stream live container logs
+.\launcher.ps1 kill               # Stop running containers
+.\launcher.ps1 clean              # Remove container volumes & images
+```
+
+#### Core CLI Commands (ANYmal):
+```powershell
+# 1. Build Docker Simulation Container
+.\launcher.ps1 build
+
+# 2. Start Headless Simulation Container & TensorBoard
+.\launcher.ps1 up -Head anymal -Headless
+
+# 1. Build & Launch Container Stack (Host PowerShell)
+.\launcher.ps1 build
+.\launcher.ps1 up -Head anymal -Headless
+
+# 2. Master Training Command (All Parameters Configured)
+# Options:
+#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head anymal -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+#  - Headless USD & MP4 (Docker Desktop): 
+.\launcher.ps1 train -Head anymal -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+
+# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
+.\launcher.ps1 play -Head anymal -Checkpoint ./core/logs/rsl_rl/anymal/<run>/model_1000.pt -RealTime -UsdExport
+
+# 4. Convert Any Generated USD Stage to MP4 Video
+.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
+
+# 5. Management & Logs
+.\launcher.ps1 logs               # Stream live container logs
+.\launcher.ps1 kill               # Stop running containers
+.\launcher.ps1 clean              # Remove container volumes & images
+```
+
+#### Core CLI Commands (AMR):
+```powershell
+# 1. Build Docker Simulation Container
+.\launcher.ps1 build
+
+# 2. Start Headless Simulation Container & TensorBoard
+.\launcher.ps1 up -Head amr -Headless
+
+# 1. Build & Launch Container Stack (Host PowerShell)
+.\launcher.ps1 build
+.\launcher.ps1 up -Head amr -Headless
+
+# 2. Master Training Command (All Parameters Configured)
+# Options:
+#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head amr -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+#  - Headless USD & MP4 (Docker Desktop): 
+.\launcher.ps1 train -Head amr -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
+
+# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
+.\launcher.ps1 play -Head amr -Checkpoint ./core/logs/rsl_rl/amr/<run>/model_1000.pt -RealTime -UsdExport
 
 # 4. Convert Any Generated USD Stage to MP4 Video
 .\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
