@@ -3,4 +3,4 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""AMR mobile robot package."""
+"""AMR (TurtleBot3 Burger) package: locomotion and local navigation tasks."""

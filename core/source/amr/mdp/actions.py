@@ -33,11 +33,29 @@ class DifferentialDriveActionCfg(ActionTermCfg):
     right_wheel_name: str = "wheel_right_joint"
     wheel_radius: float = 0.033
     wheel_base: float = 0.160
-    max_wheel_vel: float = 15.0
+    max_wheel_vel: float = 11.0
+    max_lin_vel: float = 0.22
+    max_ang_vel: float = 2.84
+    bounding_strategy: str = "clip"
+    no_reverse: bool = False
 
 
 class DifferentialDriveAction(ActionTerm):
-    """Translates [v_x, omega_z] twist commands into differential wheel velocity targets."""
+    """Translates normalized ``[v_x, omega_z]`` twist commands into differential wheel velocity targets.
+
+    The raw actions are normalized to ``[-1, 1]``. They are scaled by ``max_lin_vel`` (m/s) and
+    ``max_ang_vel`` (rad/s) before the differential-drive inverse kinematics map them to wheel
+    angular velocity targets (rad/s)::
+
+        v = a_v * max_lin_vel
+        w = a_w * max_ang_vel
+        w_left  = (v - w * wheel_base / 2) / wheel_radius
+        w_right = (v + w * wheel_base / 2) / wheel_radius
+
+    A positive wheel target rotates the wheel forward (about -y_body), producing forward motion
+    along the base +x axis. When ``no_reverse`` is enabled the forward velocity is clamped to
+    non-negative values, which is useful for curriculum stages or car-like driving.
+    """
 
     cfg: DifferentialDriveActionCfg
 
@@ -65,8 +83,12 @@ class DifferentialDriveAction(ActionTerm):
     def process_actions(self, actions: torch.Tensor):
         self._raw_actions[:] = actions
 
-        v = self._raw_actions[:, 0]
-        w = self._raw_actions[:, 1]
+        # normalize the raw actions to the robot's twist limits
+        v = self._raw_actions[:, 0] * self.cfg.max_lin_vel
+        w = self._raw_actions[:, 1] * self.cfg.max_ang_vel
+
+        if self.cfg.no_reverse:
+            v = torch.clamp(v, min=0.0)
 
         r = self.cfg.wheel_radius
         b = self.cfg.wheel_base
@@ -78,7 +100,13 @@ class DifferentialDriveAction(ActionTerm):
         w_right = (v + w * (b / 2.0)) / r
 
         wheel_vels = torch.stack([w_left, w_right], dim=-1)
-        wheel_vels = torch.clamp(wheel_vels, min=-self.cfg.max_wheel_vel, max=self.cfg.max_wheel_vel)
+
+        if self.cfg.bounding_strategy == "clip":
+            wheel_vels = torch.clamp(wheel_vels, min=-self.cfg.max_wheel_vel, max=self.cfg.max_wheel_vel)
+        elif self.cfg.bounding_strategy == "tanh":
+            wheel_vels = torch.tanh(wheel_vels / self.cfg.max_wheel_vel) * self.cfg.max_wheel_vel
+        else:
+            raise ValueError(f"Unsupported bounding strategy: {self.cfg.bounding_strategy}")
 
         self._processed_actions = wheel_vels
 

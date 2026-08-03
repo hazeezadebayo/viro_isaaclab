@@ -41,10 +41,12 @@ $HeadTaskMap = @{
 
 # Simulation step time (sim.dt * decimation) per head, used to convert video clip
 # lengths/intervals from seconds to simulation steps for the --video flags.
+# AMR defaults to navigation (0.4 s policy step); use -Task for locomotion or
+# traversability (0.1 s policy step).
 $SimDtMap = @{
     "humanoid" = (1.0 / 60.0)
     "anymal"   = (1.0 / 50.0)
-    "amr"      = (1.0 / 25.0)
+    "amr"      = (1.0 / 2.5)
     "cobot"    = (1.0 / 50.0)
 }
 
@@ -74,7 +76,9 @@ Options for 'up':
 
 Options for 'train' / 'play':
   -Head <name>                 Head name (humanoid | anymal | amr | cobot)
-  -Task <task>                 IsaacLab task override (default: task mapped to -Head)
+  -Task <task>                 IsaacLab task override (default: task mapped to -Head; e.g. amr defaults to
+                               Isaac-AMR-Navigation-v0, use Isaac-AMR-Locomotion-v0 for locomotion or
+                               Isaac-AMR-Traversability-v0 for the camera traversability task)
   -NumEnvs <int>               Number of parallel environments (default: 16)
   -MaxIterations <int>         Training iterations (train; default: runner cfg value)
   -Checkpoint <path>           Checkpoint relative to /workspace (play)

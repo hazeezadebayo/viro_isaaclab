@@ -1,0 +1,189 @@
+<?xml version="1.0"?>
+<robot name="turtlebot3_burger_amr">
+  <!--
+    Self-contained URDF for the TurtleBot3 Burger AMR.
+
+    Conventions:
+    - base_footprint sits at the ground plane (spawn z handled by the asset config).
+    - Differential-drive IK sign (verified): a positive wheel joint velocity rotates
+      the wheel about -y_body, producing forward (+x_body) linear motion. Both wheels
+      use identical joint origins so a positive target rotates both wheels forward.
+    - Meshes are referenced with package:// URIs so they resolve both in Isaac Lab
+      (UrdfFileCfg) and in ROS2 (package installed by CMakeLists.txt).
+  -->
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <mass value="0.9"/>
+      <inertia ixx="2.8875e-03" ixy="0.0" ixz="0.0" iyy="2.8875e-03" iyz="0.0" izz="4.96125e-03"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://viro_amr_description/turtlebot3/meshes/burger_base.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.105" length="0.10"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <link name="imu_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="6.6667e-07" ixy="0.0" ixz="0.0" iyy="6.6667e-07" iyz="0.0" izz="6.6667e-07"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.02 0.02"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.02 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="-0.032 0 0.068" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_scan">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="2.6042e-05" ixy="0.0" ixz="0.0" iyy="2.6042e-05" iyz="0.0" izz="2.0833e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://viro_amr_description/turtlebot3/meshes/lds.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.025" length="0.10"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_scan"/>
+    <origin xyz="-0.064 0 0.121" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="3.25e-06" ixy="0.0" ixz="0.0" iyy="3.25e-06" iyz="0.0" izz="3.0e-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.02"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.064 -0.065 0.094" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_rgb_frame">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1.0e-08" ixy="0.0" ixz="0.0" iyy="1.0e-08" iyz="0.0" izz="1.0e-08"/>
+    </inertial>
+  </link>
+
+  <joint name="camera_rgb_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_rgb_frame"/>
+    <origin xyz="0.005 0.018 0.013" rpy="0 0 0"/>
+  </joint>
+
+  <link name="wheel_left_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="2.008e-05" ixy="0.0" ixz="0.0" iyy="2.008e-05" iyz="0.0" izz="2.7225e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://viro_amr_description/turtlebot3/meshes/tire.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.033" length="0.024"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="wheel_left_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_left_link"/>
+    <origin xyz="0.0 0.144 0.023" rpy="-1.57 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10.0" velocity="11.0"/>
+  </joint>
+
+  <link name="wheel_right_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="2.008e-05" ixy="0.0" ixz="0.0" iyy="2.008e-05" iyz="0.0" izz="2.7225e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://viro_amr_description/turtlebot3/meshes/tire.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.033" length="0.024"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="wheel_right_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_right_link"/>
+    <origin xyz="0.0 -0.144 0.023" rpy="-1.57 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10.0" velocity="11.0"/>
+  </joint>
+</robot>

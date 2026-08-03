@@ -124,14 +124,36 @@ gym.register(
     },
 )
 
-# 3. AMR Mobile Robot Navigation Task
+# 3. AMR TurtleBot3 Burger Differential-Drive Tasks
+gym.register(
+    id="Isaac-AMR-Locomotion-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.amr.tasks.amr_locomotion_env_cfg:AmrLocomotionEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.amr.agents.rsl_rl_ppo_cfg:AmrLocomotionPPORunnerCfg",
+    },
+)
+
+# 3b. AMR Navigation Task (hierarchical: frozen pre-trained locomotion policy below)
 gym.register(
     id="Isaac-AMR-Navigation-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": "core.source.amr.tasks.amr_env_cfg:AmrEnvCfg",
-        "rsl_rl_cfg_entry_point": "core.source.amr.agents.rsl_rl_ppo_cfg:AmrPPORunnerCfg",
+        "env_cfg_entry_point": "core.source.amr.tasks.amr_navigation_env_cfg:AmrNavigationEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.amr.agents.rsl_rl_ppo_cfg:AmrNavigationPPORunnerCfg",
+    },
+)
+
+# 3c. AMR Traversability Task (camera-based, figure-8 white path on black terrain)
+gym.register(
+    id="Isaac-AMR-Traversability-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.amr.tasks.amr_traversability_env_cfg:AmrTraversabilityEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.amr.agents.rsl_rl_ppo_cfg:AmrTraversabilityPPORunnerCfg",
     },
 )
 

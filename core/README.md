@@ -82,9 +82,17 @@ USD_EXPORT=1 USD_INTERVAL=1800 USD_LENGTH=10 \
 /isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
     --task Isaac-Anymal-C-v0 --headless --num_envs 16 --max_iterations 1000
 
-# AMR TurtleBot3 Navigation
+# AMR TurtleBot3 (differential drive) — locomotion first, then hierarchical navigation & vision traversability
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-AMR-Locomotion-v0 --headless --num_envs 16 --max_iterations 1000
+
+# After locomotion training, train the high-level navigation policy (uses the frozen locomotion policy)
 /isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
     --task Isaac-AMR-Navigation-v0 --headless --num_envs 16 --max_iterations 1000
+
+# Camera-based traversability on a white figure-8 path (requires --enable_cameras for the RTX camera)
+/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
+    --task Isaac-AMR-Traversability-v0 --headless --num_envs 16 --max_iterations 1000 --enable_cameras
 
 # Cobot UR5e Manipulator Reaching
 /isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
@@ -95,7 +103,7 @@ USD_EXPORT=1 USD_INTERVAL=1800 USD_LENGTH=10 \
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--task` | `str` | *Required* | Gym task ID (`Isaac-Humanoid-Imitation-v0`, `Isaac-Anymal-C-v0`, `Isaac-AMR-Navigation-v0`, `Isaac-Lift-Cylinder-Cobot-v0`). |
+| `--task` | `str` | *Required* | Gym task ID (`Isaac-Humanoid-Imitation-v0`, `Isaac-Anymal-C-v0`, `Isaac-AMR-Locomotion-v0`, `Isaac-AMR-Navigation-v0`, `Isaac-AMR-Traversability-v0`, `Isaac-Lift-Cylinder-Cobot-v0`). |
 | `--headless` | `flag` | `False` | Disables GUI viewport for fast headless simulation inside Docker. |
 | `--num_envs` | `int` | `4096` (16 CLI) | Number of parallel simulation environments running on GPU CUDA tensors. |
 | `--max_iterations` | `int` | *From Agent Cfg* | Maximum RL training iterations (e.g. `1000`). |
@@ -178,7 +186,9 @@ Defaults configured in `core/source/<head>/tasks/*_env_cfg.py` and `agents/rsl_r
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Humanoid** | `Isaac-Humanoid-Imitation-v0` | $1/120\,\text{s}$ | 2 | $1/60\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/humanoid/` |
 | **ANYmal** | `Isaac-Anymal-C-v0` | $1/200\,\text{s}$ | 4 | $1/50\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/anymal/` |
-| **AMR** | `Isaac-AMR-Navigation-v0` | $1/100\,\text{s}$ | 4 | $1/25\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/amr/` |
+| **AMR (Locomotion)** | `Isaac-AMR-Locomotion-v0` | $1/100\,\text{s}$ | 10 | $0.1\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/amr_locomotion/` |
+| **AMR (Navigation)** | `Isaac-AMR-Navigation-v0` | $1/100\,\text{s}$ | 40 | $0.4\,\text{s}$ | 2048 (16 CLI) | `core/logs/rsl_rl/amr_navigation/` |
+| **AMR (Traversability)** | `Isaac-AMR-Traversability-v0` (train with `--enable_cameras`) | $1/100\,\text{s}$ | 10 | $0.1\,\text{s}$ | 1024 (16 CLI) | `core/logs/rsl_rl/amr_traversability/` |
 | **Cobot** | `Isaac-Lift-Cylinder-Cobot-v0` | $0.01\,\text{s}$ | 2 | $0.02\,\text{s}$ | 4096 (16 CLI) | `core/logs/rsl_rl/cobot/` |
 
 ---
