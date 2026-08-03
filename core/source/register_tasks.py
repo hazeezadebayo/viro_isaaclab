@@ -42,14 +42,85 @@ gym.register(
     },
 )
 
-# 2. ANYmal-C Quadruped Locomotion Task
+# 2. ANYmal-C Quadruped Locomotion Tasks
 gym.register(
     id="Isaac-Anymal-C-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_env_cfg:AnymalEnvCfg",
-        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalPPORunnerCfg",
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_locomotion_rough_env_cfg:AnymalLocomotionRoughEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCPositionRoughPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_locomotion_rough_env_cfg:AnymalLocomotionRoughEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCPositionRoughPPORunnerWithSymmetryCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Flat-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_locomotion_flat_env_cfg:AnymalLocomotionFlatEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCPositionFlatPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Flat-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_locomotion_flat_env_cfg:AnymalLocomotionFlatEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCPositionFlatPPORunnerWithSymmetryCfg",
+    },
+)
+
+# 2b. ANYmal-C Local Navigation Tasks
+gym.register(
+    id="Isaac-Anymal-C-Navigation-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_navigation_rough_env_cfg:AnymalNavigationRoughEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCNavigationRoughPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Navigation-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_navigation_rough_env_cfg:AnymalNavigationEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCNavigationRoughPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Navigation-Flat-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_navigation_flat_env_cfg:AnymalNavigationFlatEnvCfg",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCNavigationRoughPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Anymal-C-Navigation-Flat-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "core.source.anymal.tasks.anymal_navigation_flat_env_cfg:AnymalNavigationEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "core.source.anymal.agents.rsl_rl_ppo_cfg:AnymalCNavigationRoughPPORunnerCfg",
     },
 )
 

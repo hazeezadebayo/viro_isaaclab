@@ -5,8 +5,8 @@ Isaac RL Studio launcher for Windows PowerShell.
 #>
 
 param(
-    [Parameter(Position=0)]
-    [ValidateSet("build","up","logs","clean","kill","train","play","export")]
+    [Parameter(Position = 0)]
+    [ValidateSet("build", "up", "logs", "clean", "kill", "train", "play", "export")]
     [string]$Command,
     
     [string]$Head = "humanoid",
@@ -216,7 +216,8 @@ function Invoke-Train {
         $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
         $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
         Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
-    } else {
+    }
+    else {
         $cmdArgs += Get-VideoArgs
     }
 
@@ -250,7 +251,8 @@ function Invoke-Play {
         $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
         $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
         Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
-    } else {
+    }
+    else {
         $cmdArgs += Get-VideoArgs
     }
 

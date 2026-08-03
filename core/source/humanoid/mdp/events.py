@@ -735,9 +735,12 @@ class randomize_rigid_body_com(ManagerTermBase):
         self.asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
         self.asset: RigidObject | Articulation = env.scene[self.asset_cfg.name]
 
-        # detect physics backend
-        manager_name = env.sim.physics_manager.__name__.lower()
-        self._is_newton = "newton" in manager_name
+        # detect physics backend safely for Isaac Lab 2.1+
+        try:
+            manager_name = env.sim.physics_manager.__name__.lower()
+            self._is_newton = "newton" in manager_name
+        except AttributeError:
+            self._is_newton = False
 
         self.default_com = None
 

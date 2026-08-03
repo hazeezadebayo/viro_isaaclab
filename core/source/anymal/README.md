@@ -1,97 +1,94 @@
-# ANYmal Quadruped Locomotion Architecture
+# ANYmal-C Position-Based Locomotion & Local Navigation
 
-## 1. Overview & Educational Purpose
-
-The **ANYmal-C Quadruped Head** models a 12-DOF commercial quadrupedal robot (ANYbotics ANYmal-C). Quadrupeds feature a low Center of Mass ($\text{CoM}$) and a 4-point foot contact support polygon, making them statically stable at rest and dynamically versatile over rough terrain.
-
-The educational goal of this environment is to teach **ActuatorNet Neural Control**, quadrupedal trot/pace gait synchronization, and robust blind locomotion over uneven ground planes.
+This directory contains the migrated configurations and MDP logic for the ANYmal-C quadruped robot, supporting **position-based locomotion** (walking to target coordinate frames) and **local navigation** (obstacle avoidance using a hierarchical policy architecture).
 
 ---
 
-## 2. Simulation Environment Setup
+## 1. Overview of Registered Environments (8 Tasks)
 
-- **Task Identifier**: `Isaac-Anymal-C-v0`
-- **Physics Engine**: Nvidia PhysX (Fabric GPU acceleration)
-- **Simulation Time-step ($\Delta t_{\text{sim}}$)**: $1 / 120 \, \text{s} \approx 8.33 \, \text{ms}$
-- **Policy Control Decimation ($K$)**: 2 ($\Delta t_{\text{policy}} = 1 / 60 \, \text{s} \approx 16.67 \, \text{ms}$, 60 Hz control loop)
-- **Episode Horizon**: 20.0 seconds (1200 policy steps)
+There are 8 distinct environments registered for ANYmal-C. They are structured as a combination of two core tasks (Locomotion vs. Navigation), two terrain types (Rough vs. Flat), and two execution modes (Train vs. Play).
+
+| Gym Environment ID | Task Type | Terrain | Mode / Purpose |
+| :--- | :--- | :--- | :--- |
+| **`Isaac-Anymal-C-v0`** | Locomotion | Rough | **Train** locomotion to walk to coordinates on rough terrain |
+| **`Isaac-Anymal-C-Play-v0`** | Locomotion | Rough | **Visualize/Evaluate** locomotion on rough terrain |
+| **`Isaac-Anymal-C-Flat-v0`** | Locomotion | Flat | **Train** locomotion to walk to coordinates on flat ground |
+| **`Isaac-Anymal-C-Flat-Play-v0`** | Locomotion | Flat | **Visualize/Evaluate** locomotion on flat ground |
+| **`Isaac-Anymal-C-Navigation-v0`** | Navigation | Rough | **Train** navigation + obstacle avoidance on rough terrain |
+| **`Isaac-Anymal-C-Navigation-Play-v0`** | Navigation | Rough | **Visualize/Evaluate** navigation + obstacle avoidance on rough terrain |
+| **`Isaac-Anymal-C-Navigation-Flat-v0`** | Navigation | Flat | **Train** navigation + obstacle avoidance on flat ground |
+| **`Isaac-Anymal-C-Navigation-Flat-Play-v0`** | Navigation | Flat | **Visualize/Evaluate** navigation + obstacle avoidance on flat ground |
 
 ---
 
-## 3. Robot Kinematics & Joint Breakdown (12 Actuated DOF)
+## 2. Core Architecture Dimensions
 
+### A. Core Task
+* **Locomotion** (`tasks/anymal_locomotion_*_env_cfg.py`):
+  * The network directly maps base inputs, joint states, and target coordinates to motor target commands.
+* **Navigation** (`tasks/anymal_navigation_*_env_cfg.py`):
+  * Hierarchical setup. A high-level navigation policy receives base states and relative obstacle (red cone) positions, and outputs velocity targets.
+  * These velocity targets are fed directly into a pre-trained low-level locomotion policy, which translates them into physical joint commands.
+  * Obstacles are spawned dynamically via `RigidObjectCfg` inside the task configuration files.
+
+### B. Terrain Type
+* **Rough Terrain**:
+  * Procedurally generated slopes, steps, and obstacles.
+  * Active height scanner (`RayCasterCfg`) mounted on the robot base scans elevation around feet and passes height data to the policy.
+* **Flat Terrain**:
+  * Flat ground plane plane.
+  * Height scanner is disabled (`self.scene.height_scanner = None`) to simplify observations and accelerate training.
+
+### C. Execution Mode
+* **Train Mode (`-v0`)**:
+  * Configured for large-scale GPU simulation (spawns 4,096 environments).
+  * Enables action/observation noises, randomized physical properties (mass, com, body friction), and random pushes to train highly robust policies.
+* **Play Mode (`-Play-v0`)**:
+  * Configured for interactive visualization (spawns 1 to 50 environments).
+  * Disables domain randomizations, noises, and pushes for clean evaluation of checkpoint models.
+
+---
+
+## 3. Policy & Checkpoint Management
+
+### Centralized Checkpoint Directory (`core/logs`)
+Checkpoints are saved and loaded from the centralized `core/logs/rsl_rl/` directory.
+
+```text
+core/logs/rsl_rl/
+├── anymal_c_rough/
+│   ├── pretrained/
+│   │   └── policy.pt    # Pretrained locomotion fallback (rough)
+│   └── <run_folder>/    # Datetime folders from training
+└── anymal_c_flat/
+    ├── pretrained/
+    │   └── policy.pt    # Pretrained locomotion fallback (flat)
+    └── <run_folder>/    # Datetime folders from training
 ```
-                            ┌────────────────┐
-                            │  ANYmal-C BASE │
-                            └───────┬────────┘
-             ┌──────────────────────┼──────────────────────┐
-      Front Left (LF)        Front Right (RF)       Hind Left (LH)         Hind Right (RH)
-     ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
-     │  LF_HAA (Hip) │      │  RF_HAA (Hip) │      │  LH_HAA (Hip) │      │  RH_HAA (Hip) │
-     │  LF_HFE (Thigh)      │  RF_HFE (Thigh)      │  LH_HFE (Thigh)      │  RH_HFE (Thigh)
-     │  LF_KFE (Knee)│      │  RF_KFE (Knee)│      │  LH_KFE (Knee)│      │  RH_KFE (Knee)│
-     └───────┬───────┘      └───────┬───────┘      └───────┬───────┘      └───────┬───────┘
-          [FOOT]                 [FOOT]                 [FOOT]                 [FOOT]
+
+### Dynamic Checkpoint Resolver
+The navigation environment configurations implement a dynamic path resolver:
+1. It scans `core/logs/rsl_rl/anymal_c_rough` (or `anymal_c_flat`) for active training runs.
+2. It automatically identifies the latest date-time run folder and selects the highest iteration checkpoint (e.g., `model_2000.pt`).
+3. If no training runs are found, it falls back to the `pretrained/policy.pt` model weights.
+
+---
+
+## 4. Train & Play Execution Commands
+
+Run execution commands using the root-level launcher `launcher.ps1`:
+
+### Training Locomotion
+```powershell
+.\launcher.ps1 train -Head anymal -Task Isaac-Anymal-C-v0 -NumEnvs 4096
 ```
 
-### Joint Registry Table (4 Legs $\times$ 3 Joints/Leg)
+### Training Navigation
+```powershell
+.\launcher.ps1 train -Head anymal -Task Isaac-Anymal-C-Navigation-v0 -NumEnvs 2048
+```
 
-| Leg Identifier | Joint Name | Nominal Target ($q_0$) | Range of Motion | Actuator Model |
-|----------------|------------|------------------------|-----------------|----------------|
-| **Left Front** | `LF_HAA`, `LF_HFE`, `LF_KFE` | $[0.0, 0.4, -0.73] \, \text{rad}$ | $[-0.8, 0.8] \times [-1.5, 1.5] \times [-2.6, -0.2]$ | ActuatorNet MLP |
-| **Right Front** | `RF_HAA`, `RF_HFE`, `RF_KFE` | $[0.0, 0.4, -0.73] \, \text{rad}$ | $[-0.8, 0.8] \times [-1.5, 1.5] \times [-2.6, -0.2]$ | ActuatorNet MLP |
-| **Left Hind** | `LH_HAA`, `LH_HFE`, `LH_KFE` | $[0.0, -0.4, 0.73] \, \text{rad}$ | $[-0.8, 0.8] \times [-1.5, 1.5] \times [0.2, 2.6]$ | ActuatorNet MLP |
-| **Right Hind** | `RH_HAA`, `RH_HFE`, `RH_KFE` | $[0.0, -0.4, 0.73] \, \text{rad}$ | $[-0.8, 0.8] \times [-1.5, 1.5] \times [0.2, 2.6]$ | ActuatorNet MLP |
-
----
-
-## 4. Mathematical Observation Space ($\mathcal{S} \in \mathbb{R}^{48}$)
-
-$$\mathbf{s}_t = \begin{bmatrix} \mathbf{v}_{\text{base}} & \boldsymbol{\omega}_{\text{base}} & \mathbf{g}_{\text{proj}} & \mathbf{q}_t - \mathbf{q}_0 & \dot{\mathbf{q}}_t & \mathbf{a}_{t-1} \end{bmatrix}$$
-
-1. **Base Velocities ($\mathbf{v}_{\text{base}} \in \mathbb{R}^3, \boldsymbol{\omega}_{\text{base}} \in \mathbb{R}^3$)**: Measured linear and angular velocity in body frame.
-2. **Projected Gravity ($\mathbf{g}_{\text{proj}} \in \mathbb{R}^3$)**: Orientation relative to gravity vector.
-3. **Joint Position Offsets ($\mathbf{q}_t - \mathbf{q}_0 \in \mathbb{R}^{12}$)**: Displacement from default stance.
-4. **Joint Velocities ($\dot{\mathbf{q}}_t \in \mathbb{R}^{12}$)**: Joint angular rates scaled by $0.1$.
-5. **Last Action Vector ($\mathbf{a}_{t-1} \in \mathbb{R}^{12}$)**: Previous policy command.
-
----
-
-## 5. Mathematical Action Space ($\mathcal{A} \in [-1, 1]^{12}$)
-
-The policy outputs joint target offsets $\mathbf{a}_t \in [-1, 1]^{12}$. Target joint position is:
-
-$$\mathbf{q}_{\text{target}} = \mathbf{q}_0 + 0.25 \cdot \mathbf{a}_t$$
-
-ActuatorNet neural network converts $(\mathbf{q}_{\text{target}} - \mathbf{q}_t, \dot{\mathbf{q}}_t)$ into physical SEA (Series Elastic Actuator) motor torques.
-
----
-
-## 6. Reward Function Formulation ($\mathcal{R}$)
-
-$$\mathcal{R}_t = 1.5 \, r_{\text{progress}} + 2.0 \, r_{\text{alive}} + 0.3 \, r_{\text{upright}} + 0.8 \, r_{\text{target}} - 0.01 \|\mathbf{a}\|^2 - 0.005 \|\mathbf{a}_t - \mathbf{a}_{t-1}\|^2 - 0.005 \, P_{\text{power}}$$
-
-- **Progress Reward ($r_{\text{progress}}$)**: Linear displacement toward target location $(1000.0, 0, 0)$.
-- **Upright Posture Bonus ($r_{\text{upright}}$)**: Encourages base orientation cosine similarity $> 0.90$.
-- **Power Consumption Penalty ($P_{\text{power}}$)**: $\sum_j |\tau_j \cdot \dot{q}_j|$, penalizes mechanical energy loss.
-
----
-
-## 7. What ANYmal Learns to Do
-
-1. **Exploration**: ANYmal balances on four legs and learns to withstand external push perturbations.
-2. **Gait Emergence**: Discovers synchronized diagonal leg pairing (Trotting: LF+RH swing while RF+LH stance).
-3. **Terrain Navigation**: Maintains constant forward velocity over ground planes without tripping.
-
----
-
-## 8. How to Teach New Behaviors
-
-### Example 1: Dynamic ROS2 Command Velocity Tracking ($v_x, v_y, \omega_z$)
-1. Add command observation $\mathbf{c}_{\text{cmd}} = [v_{x,\text{cmd}}, v_{y,\text{cmd}}, \omega_{z,\text{cmd}}]$ to `ObservationsCfg`.
-2. Add tracking reward terms:
-   $$r_{\text{lin\_vel}} = \exp\left(-\frac{\|v_{xy} - v_{xy,\text{cmd}}\|^2}{0.25}\right), \qquad r_{\text{ang\_vel}} = \exp\left(-\frac{(\omega_z - \omega_{z,\text{cmd}})^2}{0.25}\right)$$
-
-### Example 2: Stair & Rough Terrain Climbing
-1. Change terrain importer in `AnymalSceneCfg` from `"plane"` to `"rough"` or `"pyramid_stairs"`.
-2. Add foot clearance reward for lifting feet above step height during swing phase.
+### Visualizing/Playing a Task Checkpoint
+```powershell
+.\launcher.ps1 play -Head anymal -Task Isaac-Anymal-C-Play-v0 -Checkpoint ./core/logs/rsl_rl/anymal_c_rough/pretrained/policy.pt
+```
