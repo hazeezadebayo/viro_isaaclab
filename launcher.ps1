@@ -138,6 +138,49 @@ function Invoke-Build {
     Write-Info "Build complete."
 }
 
+function Ensure-AmrUsd {
+    if ($Head -ne "amr") { return }
+    $usdPath = Join-Path $ScriptDir "core\source\amr\descriptions\turtlebot3\model.usd"
+    $urdfPath = Join-Path $ScriptDir "core\source\amr\descriptions\turtlebot3\model.urdf"
+
+    $needsConversion = $false
+    if (-not (Test-Path $usdPath)) {
+        $needsConversion = $true
+        Write-Info "TurtleBot3 model.usd not found. Running automated URDF -> USD conversion..."
+    }
+    elseif ((Get-Item $urdfPath).LastWriteTime -gt (Get-Item $usdPath).LastWriteTime) {
+        $needsConversion = $true
+        Write-Info "TurtleBot3 model.urdf updated since model.usd. Re-running automated URDF -> USD conversion..."
+    }
+
+    if ($needsConversion) {
+        Push-Location (Join-Path $ScriptDir "docker")
+        try {
+            $containerId = docker compose -f $ComposeFile ps -q isaac-sim
+            if (-not $containerId) {
+                Write-Info "Starting container to run automated URDF -> USD conversion..."
+                docker compose -f $ComposeFile up -d isaac-sim
+                $containerId = docker compose -f $ComposeFile ps -q isaac-sim
+            }
+            Write-Info "Executing prep_relative_urdf and convert_urdf_to_usd in container..."
+            docker exec $containerId bash -lc "python3 /workspace/core/scripts/prep_relative_urdf.py"
+            docker exec $containerId bash -lc "/isaac-sim/python.sh /workspace/core/utils/convert_urdf_to_usd.py --urdf /tmp/amr_test/model.urdf --output /tmp/amr_test/model.usd --joint-stiffness 10.0 --joint-damping 1.0 --joint-target-type velocity"
+            
+            Write-Info "Syncing model.usd to host repository..."
+            $destDir = Join-Path $ScriptDir "core\source\amr\descriptions\turtlebot3"
+            docker cp "${containerId}:/tmp/amr_test/model.usd" "$destDir\model.usd"
+            if (Test-Path (Join-Path $destDir "configuration")) {
+                Remove-Item -Recurse -Force (Join-Path $destDir "configuration")
+            }
+            docker cp "${containerId}:/tmp/amr_test/configuration" "$destDir\configuration"
+            Write-Info "[OK] Automated URDF -> USD conversion synced successfully."
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+
 function Invoke-Up {
     if (-not $Head) {
         $Head = "humanoid"
@@ -164,6 +207,8 @@ function Invoke-Up {
     finally {
         Pop-Location
     }
+
+    Ensure-AmrUsd
 
     $containerId = docker compose -f $ComposeFile ps -q isaac-sim
     if ($containerId) {
@@ -206,6 +251,14 @@ function Get-VideoArgs {
 }
 
 function Invoke-Train {
+    Ensure-AmrUsd
+    Push-Location (Join-Path $ScriptDir "docker")
+    try {
+        docker compose -f $ComposeFile exec -w /workspace isaac-sim python3 /workspace/core/scripts/patch_rsl_rl.py
+    }
+    finally {
+        Pop-Location
+    }
     $task = Resolve-Task
     $python = "/isaac-sim/python.sh"
     $script = "/workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py"

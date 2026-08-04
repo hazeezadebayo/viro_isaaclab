@@ -32,7 +32,7 @@ VELOCITY_TERRAIN_CFG = TerrainGeneratorCfg(
             proportion=0.2, slope_range=(0.0, 0.35), platform_width=2.0, border_width=0.25
         ),
         "boxes": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=0.2, grid_width=0.4, grid_height_range=(0.02, 0.06), platform_width=2.0
+            proportion=0.2, grid_width=0.45, grid_height_range=(0.02, 0.06), platform_width=2.0
         ),
     },
 )

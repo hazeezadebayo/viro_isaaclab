@@ -32,6 +32,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from core.source.amr.descriptions.amr import AMR_BURGER_CFG
 from core.source.amr.mdp.locomotion.myTerrainCfg import VELOCITY_TERRAIN_CFG
@@ -41,19 +42,24 @@ import core.source.amr.mdp.locomotion as mdp
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
-    """Configuration for the terrain scene with the AMR robot."""
+    """Configuration for the AMR scene."""
 
+    # ground terrain
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=VELOCITY_TERRAIN_CFG,
-        max_init_terrain_level=1,
+        max_init_terrain_level=5,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
             static_friction=1.0,
             dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
         ),
         debug_vis=False,
     )
@@ -71,7 +77,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="/World/skyLight",
         spawn=sim_utils.DomeLightCfg(
             intensity=750.0,
-            texture_file=f"{sim_utils.ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
         ),
     )
 
@@ -80,7 +86,7 @@ class MySceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
-    base_velocity = mdp.AmrVelocityCommandCfg()
+    base_velocity = mdp.AmrVelocityCommandCfg(resampling_time_range=(10.0, 10.0))
 
 
 @configclass
@@ -114,7 +120,7 @@ class ObservationsCfg:
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
-            self.enable_corruption = True
+            self.enable_corruption = False
             self.concatenate_terms = True
 
     policy: PolicyCfg = PolicyCfg()
@@ -142,7 +148,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base_link"),
-            "mass_distribution_params": (-2.0, 2.0),
+            "mass_distribution_params": (-0.1, 0.3),
             "operation": "add",
         },
     )

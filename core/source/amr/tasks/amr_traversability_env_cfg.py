@@ -3,21 +3,24 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configuration for the AMR TurtleBot3 Burger traversability environment.
+"""Configuration for the AMR TurtleBot3 Burger traversability environment (pseudo-HIL).
 
-The robot navigates on a flat, black ground plane overlaid with a white figure-8 path. A
-forward-facing RGB camera is mounted on the robot; the observation is a low-resolution,
-thresholded occupancy mask of *where the white path is* (16x12 cells), plus the goal position
-in the robot's base frame. The policy must keep the mask "full" (stay on the path) while
-driving toward the goal.
+The robot navigates on a flat, black ground plane overlaid with a white figure-8 path.
+The white path and the camera feed are both owned by the ROS2 synthetic world node:
+the forward-facing camera image is published as ``/amr/camera/rgb`` and rendered from
+the robot's pose, and the ground-truth map is published as ``/amr/world/grid``. The
+observation is a low-resolution, thresholded occupancy mask of *where the white path
+is* (16x12 cells), plus the goal position in the robot's base frame. The policy must
+keep the mask "full" (stay on the path) while driving toward the goal.
 
-This is the vision/teaching task of the AMR suite: it turns raw pixels into a compact binary
-mask so an MLP can solve it without a convolutional backbone.
+This is the vision/teaching task of the AMR suite: it turns raw pixels into a compact
+binary mask so an MLP can solve it without a convolutional backbone. Everything runs
+headless against the ROS map — no in-scene renderer is required.
 """
 
 from __future__ import annotations
 
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -26,7 +29,6 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import TiledCameraCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
@@ -39,9 +41,9 @@ import core.source.amr.mdp.traversability as mdp
 
 @configclass
 class AmrTraversabilitySceneCfg(InteractiveSceneCfg):
-    """Configuration for the black/white figure-8 path scene."""
+    """Configuration for the black ground-plane scene (map comes from ROS)."""
 
-    num_envs: int = 1024
+    num_envs: int = 1
     env_spacing: float = 6.5
 
     # black ground plane (visual color only; physics is a plain plane)
@@ -61,40 +63,9 @@ class AmrTraversabilitySceneCfg(InteractiveSceneCfg):
 
     robot: ArticulationCfg = AMR_BURGER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # forward-facing camera mounted on the robot (URDF camera frame at (0.069, -0.047, 0.107),
-    # pitched ~15 degrees down so it sees the path ahead of the robot)
-    tiled_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/Camera",
-        update_period=0.05,
-        height=48,
-        width=64,
-        data_types=["rgb"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
-            focus_distance=400.0,
-            horizontal_aperture=20.955,
-            clipping_range=(0.1, 15.0),
-        ),
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.069, -0.047, 0.107),
-            rot=(-0.43046, 0.56099, -0.56099, 0.43046),  # pitch 15 deg down, ROS convention
-            convention="ros",
-        ),
-        return_latest_camera_pose=True,
-    )
-
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DistantLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    )
-
-    sky_light = AssetBaseCfg(
-        prim_path="/World/skyLight",
-        spawn=sim_utils.DomeLightCfg(
-            intensity=750.0,
-            texture_file=f"{sim_utils.ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
-        ),
-    )
+    # NOTE: no in-scene camera. The camera image and the white path map both come from
+    # the ROS2 synthetic world node (/amr/camera/rgb, /amr/world/grid). The scene is
+    # intentionally just a flat plane; the map is applied by the ROS ground-truth terms.
 
 
 @configclass
@@ -137,9 +108,8 @@ class ObservationsCfg:
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
         goal_in_base = ObsTerm(func=mdp.goal_in_base, params={"command_name": "path_goal"})
         path_mask = ObsTerm(
-            func=mdp.camera_occupancy_mask,
+            func=mdp.ros_camera_mask,
             params={
-                "sensor_cfg": SceneEntityCfg("tiled_camera"),
                 "mask_height": 16,
                 "mask_width": 12,
                 "threshold": 0.5,
@@ -259,9 +229,6 @@ class AmrTraversabilityEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
 
-        # re-render the cameras right after a reset so the first observation is fresh
-        self.rerender_on_reset = True
-
-        # add the visual white path strips to the scene (visual-only assets)
-        for i, asset in enumerate(mdp.build_path_assets()):
-            setattr(self.scene, f"path_strip_{i:02d}", asset)
+        # NOTE: the camera feed and white-path map are owned by the ROS synthetic world
+        # node (/amr/camera/rgb, /amr/world/grid), not by in-scene assets. No scene
+        # geometry or in-scene rendering is needed.

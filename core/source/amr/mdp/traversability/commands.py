@@ -3,11 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Command terms for the AMR traversability task.
+"""Command terms for the AMR traversability task (pseudo-HIL).
 
-Generates a goal pose that lies on the white figure-8 path, at least ``min_goal_distance``
-meters away from the robot's current position. The robot must use the camera mask to stay on
-the path while driving toward the goal.
+Generates a goal pose that lies on the white figure-8 path (sampled from the ROS2
+occupancy grid), at least ``min_goal_distance`` meters away from the robot's current
+position. The robot must use the camera mask to stay on the path while driving toward
+the goal.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import torch
 from isaaclab.envs.mdp.commands.commands_cfg import UniformPose2dCommandCfg
 from isaaclab.envs.mdp.commands.pose_2d_command import UniformPose2dCommand
 
-from .myPathTerrainCfg import path_centerline
+from .ros_scene import get_ground_truth
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -29,27 +30,31 @@ if TYPE_CHECKING:
 class PathGoalCommand(UniformPose2dCommand):
     """Goal generator that samples goal positions on the white figure-8 path.
 
-    The goal is a world-frame 2-D position on the path centerline. The previous distance to
-    the goal is tracked so reward terms can compute dense progress.
+    The goal is a world-frame 2-D position sampled uniformly from the on-path cells of
+    the ROS occupancy grid. The previous distance to the goal is tracked so reward terms
+    can compute dense progress.
     """
 
     cfg: PathGoalCommandCfg
 
     def __init__(self, cfg: PathGoalCommandCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
+        self._env = env
+        self.robot = env.scene[cfg.asset_name]
         # distance (m) to the current goal from the previous step; read/written by the
         # goal-progress reward term
         self.dist_to_goal_prev = torch.zeros(self.num_envs, device=self.device)
 
     def _resample_command(self, env_ids: torch.Tensor):
-        centerline = path_centerline(self.device)  # (M, 2)
+        gt = get_ground_truth(self.device)
+        centers = gt["centers"]  # (M, 2) on-path cell centers in local coords
         robot_pos = self.robot.data.root_pos_w[env_ids]
         env_origins = self._env.scene.env_origins[env_ids]
 
         robot_local = robot_pos[:, :2] - env_origins[:, :2]  # (n, 2)
-        dist_to_path = torch.norm(robot_local.unsqueeze(1) - centerline.unsqueeze(0), dim=2)  # (n, M)
+        dist_to_path = torch.norm(robot_local.unsqueeze(1) - centers.unsqueeze(0), dim=2)  # (n, M)
 
-        # candidate goal points must be far enough from the current position
+        # candidate goal cells must be far enough from the current position
         valid = dist_to_path > self.cfg.min_goal_distance
         if not valid.any():
             valid = torch.ones_like(valid, dtype=torch.bool)
@@ -64,7 +69,7 @@ class PathGoalCommand(UniformPose2dCommand):
         cum = torch.cumsum(valid.float(), dim=1)
         choices = torch.argmax((cum > rank.unsqueeze(1)).float(), dim=1)  # (n,)
 
-        goal_local = centerline[choices]  # (n, 2)
+        goal_local = centers[choices]  # (n, 2)
 
         self.pos_command_w[env_ids, 0] = env_origins[:, 0] + goal_local[:, 0]
         self.pos_command_w[env_ids, 1] = env_origins[:, 1] + goal_local[:, 1]

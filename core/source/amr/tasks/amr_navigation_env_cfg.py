@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import math
 
+import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
+from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -40,6 +42,23 @@ _RESOLVED_POLICY_PATH = get_locomotion_policy_path()
 class NavigationSceneCfg(LocomotionSceneCfg):
     num_envs: int = 2048
     env_spacing: float = 2.5
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
+        ),
+        debug_vis=False,
+    )
 
     cone = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/cone",

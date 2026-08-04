@@ -3,49 +3,73 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Observation terms for the AMR traversability task.
+"""Observation terms for the AMR traversability task (pseudo-HIL).
 
-The camera feed is converted into a low-resolution occupancy mask: the RGB frame is
-thresholded to white-path / black-ground and area-pooled down to a small grid. This gives the
-policy a compact, interpretable view of *where the path is* without a CNN.
+The camera feed comes from the ROS2 synthetic world node (``/amr/camera/rgb``) which
+renders a forward-ahead view of the grid from the robot's current pose. The raw RGB
+frame is converted into a low-resolution occupancy mask: thresholded to white-path /
+black-ground and area-pooled down to a small grid. This gives the policy a compact,
+interpretable view of *where the path is* without a CNN.
 """
 
 from __future__ import annotations
 
+import time
+
 import torch
 import torch.nn.functional as F
 
-from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_rotate_inverse
 
+from .ros_scene import get_ros_scene
 
-def camera_occupancy_mask(
+
+def ros_camera_mask(
     env,
-    sensor_cfg: SceneEntityCfg,
     mask_height: int = 16,
     mask_width: int = 12,
     threshold: float = 0.5,
+    timeout: float = 3.0,
 ) -> torch.Tensor:
-    """Thresholded, area-pooled white-path occupancy mask from the RGB camera.
+    """Thresholded, area-pooled white-path occupancy mask from the ROS2 camera.
 
-    The raw RGB frame is converted to grayscale, binarized against ``threshold`` and
-    average-pooled to ``(mask_height, mask_width)``. Each mask cell therefore encodes the
-    fraction of white path visible in that image region. Returns shape ``(num_envs,
-    mask_height * mask_width)``.
+    Publishes the robot pose so the world node renders a fresh frame, then reads the
+    latest frame and binarizes / area-pools it exactly like the old in-scene tiled
+    camera. Returns shape ``(num_envs, mask_height * mask_width)``.
+
+    Raises:
+        RuntimeError: if no camera frame arrives within ``timeout`` seconds.
     """
-    sensor = env.scene.sensors[sensor_cfg.name]
-    rgb = sensor.data.output["rgb"]  # (num_envs, H, W, 3) uint8
+    scene = get_ros_scene()
+    robot = env.scene["robot"]
 
-    gray = rgb.float().mean(dim=-1) / 255.0  # (num_envs, H, W)
-    binary = (gray > threshold).float()  # 1 -> white path, 0 -> black ground
+    xyz = robot.data.root_pos_w[0]
+    quat = robot.data.root_quat_w[0]
+    yaw = torch.atan2(2.0 * (quat[0] * quat[3] + quat[1] * quat[2]), 1.0 - 2.0 * (quat[2] ** 2 + quat[3] ** 2))
+    scene.publish_pose(float(xyz[0].cpu()), float(xyz[1].cpu()), float(yaw.cpu()))
 
+    deadline = time.time() + timeout
+    rgb = None
+    while time.time() < deadline:
+        rgb = scene.camera_frame(env.device)
+        if rgb is not None:
+            break
+        time.sleep(0.05)
+    if rgb is None:
+        raise RuntimeError(
+            f"No camera frame received on /amr/camera/rgb within {timeout}s. "
+            "Is the synthetic world node running? (python core/ros2_ws/ros_synthetic_world.py)"
+        )
+
+    gray = rgb.float().mean(dim=-1) / 255.0  # (H, W)
+    binary = (gray > threshold).float()
     mask = F.interpolate(
-        binary.unsqueeze(1),
+        binary[None, None],
         size=(mask_height, mask_width),
         mode="area",
-    ).squeeze(1)  # (num_envs, mask_height, mask_width)
+    ).squeeze(1)  # (1, mask_height, mask_width)
 
-    return mask.flatten(1)
+    return mask.flatten(1).expand(env.num_envs, -1)
 
 
 def goal_in_base(env, command_name: str) -> torch.Tensor:

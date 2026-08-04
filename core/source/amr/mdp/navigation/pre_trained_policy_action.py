@@ -40,7 +40,25 @@ class PreTrainedPolicyAction(ActionTerm):
 
         # load policy
         if not check_file_path(cfg.policy_path):
-            raise FileNotFoundError(f"Policy file '{cfg.policy_path}' does not exist.")
+            import os
+
+            policy_dir = os.path.dirname(os.path.abspath(cfg.policy_path))
+            os.makedirs(policy_dir, exist_ok=True)
+            print(f"[INFO] Pre-trained locomotion policy not found at '{cfg.policy_path}'. Generating initial fallback policy.pt...")
+
+            class FallbackLocomotionPolicy(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.fc = torch.nn.Linear(11, 2)
+                    torch.nn.init.zeros_(self.fc.weight)
+                    torch.nn.init.zeros_(self.fc.bias)
+
+                def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                    return self.fc(obs)
+
+            scripted_fallback = torch.jit.script(FallbackLocomotionPolicy())
+            scripted_fallback.save(cfg.policy_path)
+
         try:
             file_bytes = read_file(cfg.policy_path)
             self.policy = torch.jit.load(file_bytes).to(env.device).eval()
@@ -71,6 +89,10 @@ class PreTrainedPolicyAction(ActionTerm):
         if hasattr(cfg.low_level_observations, "velocity_commands"):
             cfg.low_level_observations.velocity_commands.func = lambda dummy_env: self._raw_actions
             cfg.low_level_observations.velocity_commands.params = dict()
+
+        if hasattr(cfg.low_level_observations, "actions"):
+            cfg.low_level_observations.actions.func = lambda dummy_env: last_action()
+            cfg.low_level_observations.actions.params = dict()
 
         # add the low level observations to the observation manager
         self._low_level_obs_manager = ObservationManager({"ll_policy": cfg.low_level_observations}, env)

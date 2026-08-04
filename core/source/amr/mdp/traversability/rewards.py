@@ -3,10 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Reward terms for the AMR traversability task.
+"""Reward terms for the AMR traversability task (pseudo-HIL).
 
-Rewards encourage staying on the white path (camera mask is the observation; these rewards use
-the ground-truth centerline distance), making dense progress toward the goal and reaching it.
+All ground truth is read from the ROS2 occupancy grid (the synthetic world node's map),
+so rewards are always consistent with the camera observation. Rewards encourage staying
+on the white path (reward vs. penalty based on grid-cell distance/occupancy), making
+dense progress toward the goal and reaching it.
 """
 
 from __future__ import annotations
@@ -16,19 +18,29 @@ from typing import TYPE_CHECKING
 
 from isaaclab.managers import SceneEntityCfg
 
-from .myPathTerrainCfg import PATH_WIDTH, path_centerline
-
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+from .ros_scene import distance_to_path, get_ground_truth
 
-def path_centerline_distance(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Ground-truth distance (m) from the robot to the nearest path centerline point."""
-    asset = env.scene[asset_cfg.name]
-    robot_local = asset.data.root_pos_w[:, :2] - env.scene.env_origins[:, :2]
-    centerline = path_centerline(env.device)  # (M, 2)
-    dist = torch.norm(robot_local.unsqueeze(1) - centerline.unsqueeze(0), dim=2)
-    return dist.min(dim=1).values
+#: Half-width of the white path strip (m). Wider than the robot footprint.
+PATH_WIDTH = 0.32
+
+
+def _robot_gt(env: ManagerBasedRLEnv) -> dict:
+    """Cache and return the ROS grid ground-truth + robot-local positions."""
+    gt = get_ground_truth(env.device)
+    robot = env.scene["robot"]
+    robot_local = robot.data.root_pos_w[:, :2] - env.scene.env_origins[:, :2]
+    return gt, robot_local
+
+
+def path_centerline_distance(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Distances (m) from the robot to the nearest on-path grid cell center."""
+    gt, robot_local = _robot_gt(env)
+    return distance_to_path(
+        gt["grid"], robot_local, gt["resolution"], gt["origin_x"], gt["origin_y"], gt["centers"]
+    )
 
 
 def on_path_reward(
@@ -40,7 +52,8 @@ def on_path_reward(
 
     Is 1.0 when the robot is exactly on the centerline and decays with distance off it.
     """
-    dist = path_centerline_distance(env, asset_cfg)
+    del asset_cfg
+    dist = path_centerline_distance(env, SceneEntityCfg("robot"))
     return torch.exp(-0.5 * (dist / std) ** 2)
 
 
@@ -50,7 +63,8 @@ def off_path_penalty(
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
     """Penalty that grows linearly once the robot leaves the path strip."""
-    dist = path_centerline_distance(env, asset_cfg)
+    del asset_cfg
+    dist = path_centerline_distance(env, SceneEntityCfg("robot"))
     return torch.clamp(dist - threshold, min=0.0)
 
 

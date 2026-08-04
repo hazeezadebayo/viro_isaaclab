@@ -319,11 +319,14 @@ def convert_usd_to_mp4(
         for entry in frame.values():
             all_pts.append(entry["pos"])
     all_pts = np.array(all_pts)
-    min_b = all_pts.min(axis=0)
-    max_b = all_pts.max(axis=0)
+    valid_pts = all_pts[np.isfinite(all_pts).all(axis=1)] if len(all_pts) > 0 else np.array([])
+    if len(valid_pts) == 0:
+        valid_pts = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
+    min_b = valid_pts.min(axis=0)
+    max_b = valid_pts.max(axis=0)
     center = (min_b + max_b) / 2.0
     extent = float(np.max(max_b - min_b))
-    if extent < 0.5:
+    if not np.isfinite(extent) or extent < 0.5:
         extent = 2.0
 
     focal = width * 1.3
