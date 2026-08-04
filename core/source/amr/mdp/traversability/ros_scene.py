@@ -3,15 +3,15 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""In-process ROS2 scene subscriber & auto-launching node manager for traversability (pseudo-HIL).
+"""In-process ROS2 scene subscriber & auto-spawning node manager for traversability (pseudo-HIL).
 
 Spawns a background ``rclpy`` subscriber node that subscribes to the synthetic world node's
 topics and caches the latest map and camera frame so IsaacLab observation / reward /
 command / event terms can read them synchronously on ``env.device``.
 
 If an external synthetic world node (python core/ros2_ws/src/ros_synthetic_world.py) is not already
-running on ROS2, RosScene automatically instantiates and spins SyntheticWorldNode inside the ROS2 context,
-ensuring seamless hardware-in-the-loop ROS2 communication.
+running on ROS2, RosScene automatically spawns ``ros_synthetic_world.py`` as an independent OS process,
+ensuring 100% decoupled process boundaries and strict ROS2 message communication over network topics.
 
 Topics:
   * /amr/world/grid    (nav_msgs/OccupancyGrid)    - ground-truth map
@@ -24,6 +24,7 @@ from __future__ import annotations
 import ctypes
 import inspect
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -113,6 +114,7 @@ class RosScene:
         self._image_msg: Image | None = None
         self._grid_lock = threading.Lock()
         self._image_lock = threading.Lock()
+        self._world_process: subprocess.Popen | None = None
 
         self._grid_sub = self._node.create_subscription(OccupancyGrid, "/amr/world/grid", self._on_grid, 10)
         self._cam_sub = self._node.create_subscription(Image, "/amr/camera/rgb", self._on_image, 10)
@@ -122,21 +124,26 @@ class RosScene:
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
-        # Check if an external synthetic world publisher is already running; if not, launch it on ROS2 in-process
+        # Check if an external synthetic world publisher is already running; if not, spawn it as an independent ROS2 process
         if not self.wait_until_ready(timeout=2.0):
-            print("[INFO] No external ROS2 synthetic world node detected on /amr/world/grid. Auto-launching SyntheticWorldNode on ROS2...")
+            print("[INFO] No external ROS2 synthetic world node detected on /amr/world/grid. Auto-spawning synthetic world process on ROS2...")
             try:
-                from core.ros2_ws.src.ros_synthetic_world import SyntheticWorldNode
-                self._world_node = SyntheticWorldNode()
-                self._executor.add_node(self._world_node)
-                print("[INFO] SyntheticWorldNode active and publishing on ROS2 topics (/amr/world/grid, /amr/camera/rgb).")
+                synth_script = "/workspace/core/ros2_ws/src/ros_synthetic_world.py"
+                if not os.path.exists(synth_script):
+                    synth_script = os.path.abspath(
+                        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "ros2_ws", "src", "ros_synthetic_world.py")
+                    )
+                self._world_process = subprocess.Popen(
+                    [sys.executable, synth_script],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print(f"[INFO] SyntheticWorldNode running as separate ROS2 process (PID: {self._world_process.pid}).")
             except Exception as e:
-                import traceback
-                print(f"[WARN] Failed to auto-launch SyntheticWorldNode: {e}")
-                traceback.print_exc()
+                print(f"[WARN] Failed to spawn external SyntheticWorldNode process: {e}")
 
             if not self.wait_until_ready(timeout=5.0):
-                print("[WARN] SyntheticWorldNode launched but map message not yet received on /amr/world/grid.")
+                print("[WARN] SyntheticWorldNode process spawned but map message not yet received on /amr/world/grid.")
 
     def _on_grid(self, msg) -> None:
         with self._grid_lock:
@@ -207,10 +214,14 @@ class RosScene:
         return torch.from_numpy(arr).to(device)
 
     def close(self) -> None:
+        if hasattr(self, "_world_process") and self._world_process is not None:
+            try:
+                self._world_process.terminate()
+                self._world_process.wait(timeout=1.0)
+            except Exception:
+                pass
         if rclpy.ok():
             self._node.destroy_node()
-            if hasattr(self, "_world_node"):
-                self._world_node.destroy_node()
             rclpy.shutdown()
 
 
@@ -230,7 +241,7 @@ def get_ground_truth(device: str) -> dict:
         if not scene.wait_until_ready(timeout=15.0):
             raise RuntimeError(
                 "No occupancy grid received on /amr/world/grid over ROS2. "
-                "Is the synthetic world node running? (python core/ros2_ws/ros_synthetic_world.py)"
+                "Is the synthetic world node running? (python core/ros2_ws/src/ros_synthetic_world.py)"
             )
         grid = scene.occupancy_grid_tensor(device)
         meta = scene.grid_meta()
