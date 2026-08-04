@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 """Convert a URDF robot asset into a USD file using Isaac Lab's URDF importer.
 
-This is a thin, headless CLI wrapper around :class:`isaaclab.sim.converters.UrdfConverter`
-(``UrdfConverterCfg``). It produces a USD file named exactly after ``--output`` and bakes in
-the requested joint-drive configuration, mirroring the official Isaac Lab utility
-``isaaclab/scripts/tools/convert_urdf.py``.
-
-The conversion requires a running Omniverse Kit app, so it must be executed inside the container
-and always launches headless (``AppLauncher`` sets ``create_new_stage=False`` + ``hide_ui=True``
-in headless mode, which also avoids the viewport-wait hang seen with a bare
-``SimulationApp({"headless": True})``).
+This is a self-contained CLI wrapper around :class:`isaaclab.sim.converters.UrdfConverter`
+(``UrdfConverterCfg``). It automatically handles ROS ``package://`` mesh URI resolution,
+produces a USD file named exactly after ``--output``, and bakes in the requested joint-drive
+configuration.
 
 Usage (inside container):
   /isaac-sim/python.sh core/utils/convert_urdf_to_usd.py --urdf <path_to_urdf> --output <path_to_usd>
       [--joint-stiffness 10.0] [--joint-damping 1.0] [--joint-target-type velocity]
       [--fix-base] [--merge-joints]
-
-Exit code is 0 on success and non-zero on any failure (no exceptions are swallowed).
 """
+
+from __future__ import annotations
 
 import argparse
 import os
+import re
+import shutil
 import sys
+import tempfile
 
 from isaaclab.app import AppLauncher
 
@@ -62,6 +65,32 @@ parser.add_argument(
 args_cli = parser.parse_args()
 
 
+def preprocess_urdf(urdf_path: str) -> tuple[str, str | None]:
+    """If URDF contains package:// URIs, copy URDF and meshes to a temp dir with relative paths."""
+    with open(urdf_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if "package://" not in content:
+        return urdf_path, None
+
+    urdf_dir = os.path.dirname(os.path.abspath(urdf_path))
+    temp_dir = tempfile.mkdtemp(prefix="urdf_prep_")
+
+    for item in os.listdir(urdf_dir):
+        s = os.path.join(urdf_dir, item)
+        d = os.path.join(temp_dir, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+
+    content_prep = re.sub(r"package://[^/]+/(?:[^/]+/)?meshes/", "meshes/", content)
+    temp_urdf_path = os.path.join(temp_dir, os.path.basename(urdf_path))
+    with open(temp_urdf_path, "w", encoding="utf-8") as f:
+        f.write(content_prep)
+
+    return temp_urdf_path, temp_dir
+
+
 def main() -> None:
     urdf_path = os.path.abspath(args_cli.urdf)
     if not os.path.isfile(urdf_path):
@@ -72,6 +101,7 @@ def main() -> None:
     if dest_dir:
         os.makedirs(dest_dir, exist_ok=True)
 
+    input_urdf, temp_dir = preprocess_urdf(urdf_path)
     simulation_app = None
     try:
         app_launcher = AppLauncher({"headless": True})
@@ -80,7 +110,7 @@ def main() -> None:
         from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
         conv_cfg = UrdfConverterCfg(
-            asset_path=urdf_path,
+            asset_path=input_urdf,
             usd_dir=dest_dir,
             usd_file_name=os.path.basename(dest_path),
             fix_base=args_cli.fix_base,
@@ -101,6 +131,8 @@ def main() -> None:
             raise RuntimeError(f"Converter reported USD path but file does not exist: {converter.usd_path}")
         print(f"[INFO] Successfully converted '{urdf_path}' -> '{converter.usd_path}'")
     finally:
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
         if simulation_app is not None:
             simulation_app.close()
 

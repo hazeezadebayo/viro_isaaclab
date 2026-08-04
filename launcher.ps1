@@ -162,9 +162,8 @@ function Ensure-AmrUsd {
                 docker compose -f $ComposeFile up -d isaac-sim
                 $containerId = docker compose -f $ComposeFile ps -q isaac-sim
             }
-            Write-Info "Executing prep_relative_urdf and convert_urdf_to_usd in container..."
-            docker exec $containerId bash -lc "python3 /workspace/core/utils/prep_relative_urdf.py"
-            docker exec $containerId bash -lc "/isaac-sim/python.sh /workspace/core/utils/convert_urdf_to_usd.py --urdf /tmp/amr_test/model.urdf --output /tmp/amr_test/model.usd --joint-stiffness 10.0 --joint-damping 1.0 --joint-target-type velocity"
+            Write-Info "Executing automated URDF -> USD conversion in container..."
+            docker exec $containerId bash -lc "/isaac-sim/python.sh /workspace/core/utils/convert_urdf_to_usd.py --urdf /workspace/core/source/amr/descriptions/turtlebot3/model.urdf --output /tmp/amr_test/model.usd --joint-stiffness 10.0 --joint-damping 1.0 --joint-target-type velocity"
             
             Write-Info "Syncing model.usd to host repository..."
             $destDir = Join-Path $ScriptDir "core\source\amr\descriptions\turtlebot3"
