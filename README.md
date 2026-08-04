@@ -45,98 +45,32 @@ The PowerShell launcher provides 1-click execution for building containers, star
 # 1. Build Docker Simulation Container
 .\launcher.ps1 build
 
-# 2. Start Headless Simulation Container & TensorBoard
+# 2a. Start Headless Simulation Container & TensorBoard
 .\launcher.ps1 up -Head humanoid -Headless
+.\launcher.ps1 up -Head cobot -Headless
+.\launcher.ps1 up -Head anymal -Headless
+.\launcher.ps1 up -Head amr -Headless
 
-# 1. Build & Launch Container Stack (Host PowerShell)
-.\launcher.ps1 build
-.\launcher.ps1 up -Head humanoid -Headless
-
-# 2. Master Training Command (All Parameters Configured)
+# or
+# 2b. Master Training Command (All Parameters Configured)
 # Options:
 #  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head humanoid -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
 #  - Headless USD & MP4 (Docker Desktop): 
 .\launcher.ps1 train -Head humanoid -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
 
-# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
-.\launcher.ps1 play -Head humanoid -Checkpoint ./core/logs/rsl_rl/humanoid/<run>/model_1000.pt -RealTime -UsdExport
-
-# 4. Convert Any Generated USD Stage to MP4 Video
-.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
-
-# 5. Management & Logs
-.\launcher.ps1 logs               # Stream live container logs
-.\launcher.ps1 kill               # Stop running containers
-.\launcher.ps1 clean              # Remove container volumes & images
-```
-
-#### Core CLI Commands (Cobot):
-```powershell
-# 1. Build & Launch Container Stack (Host PowerShell)
-.\launcher.ps1 build
-.\launcher.ps1 up -Head cobot -Headless
-
-# 2. Master Training Command (All Parameters Configured)
-# Options:
-#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head cobot -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
-#  - Headless USD & MP4 (Docker Desktop): 
 .\launcher.ps1 train -Head cobot -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
 
-# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
-.\launcher.ps1 play -Head cobot -Checkpoint ./core/logs/rsl_rl/cobot/<run>/model_1000.pt -RealTime -UsdExport
-
-# 4. Convert Any Generated USD Stage to MP4 Video
-.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
-
-# 5. Management & Logs
-.\launcher.ps1 logs               # Stream live container logs
-.\launcher.ps1 kill               # Stop running containers
-.\launcher.ps1 clean              # Remove container volumes & images
-```
-
-#### Core CLI Commands (ANYmal):
-```powershell
-# 1. Build & Launch Container Stack (Host PowerShell)
-.\launcher.ps1 build
-.\launcher.ps1 up -Head anymal -Headless
-
-# 2. Master Training Command (All Parameters Configured)
-# Options:
-#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head anymal -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
-#  - Headless USD & MP4 (Docker Desktop): 
 .\launcher.ps1 train -Head anymal -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
 
-# 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
-.\launcher.ps1 play -Head anymal -Checkpoint ./core/logs/rsl_rl/anymal/<run>/model_1000.pt -RealTime -UsdExport
-
-# 4. Convert Any Generated USD Stage to MP4 Video
-.\launcher.ps1 export -UsdPath ./core/logs/usd/trajectory_t1.usda
-
-# 5. Management & Logs
-.\launcher.ps1 logs               # Stream live container logs
-.\launcher.ps1 kill               # Stop running containers
-.\launcher.ps1 clean              # Remove container volumes & images
-```
-
-#### Core CLI Commands (AMR):
-```powershell
-# 1. Build Docker Simulation Container
-.\launcher.ps1 build
-
-# 2. Start Headless Simulation Container & TensorBoard
-.\launcher.ps1 up -Head amr -Headless
-
-# 1. Build & Launch Container Stack (Host PowerShell)
-.\launcher.ps1 build
-.\launcher.ps1 up -Head amr -Headless
-
-# 2. Master Training Command (All Parameters Configured)
-# Options:
-#  - Native Vulkan Video (Linux/Ubuntu):   .\launcher.ps1 train -Head amr -NumEnvs 16 -MaxIterations 1000 -VideoLengthMin 1.0 -VideoIntervalMin 30.0
-#  - Headless USD & MP4 (Docker Desktop): 
 .\launcher.ps1 train -Head amr -NumEnvs 16 -MaxIterations 1000 -UsdExport -VideoLengthMin 1.0 -VideoIntervalMin 30.0
 
 # 3. Master Playback / Inference Command (Evaluate Trained Checkpoint)
+.\launcher.ps1 play -Head humanoid -Checkpoint ./core/logs/rsl_rl/humanoid/<run>/model_1000.pt -RealTime -UsdExport
+
+.\launcher.ps1 play -Head cobot -Checkpoint ./core/logs/rsl_rl/cobot/<run>/model_1000.pt -RealTime -UsdExport
+
+.\launcher.ps1 play -Head anymal -Checkpoint ./core/logs/rsl_rl/anymal/<run>/model_1000.pt -RealTime -UsdExport
+
 .\launcher.ps1 play -Head amr -Checkpoint ./core/logs/rsl_rl/amr/<run>/model_1000.pt -RealTime -UsdExport
 
 # 4. Convert Any Generated USD Stage to MP4 Video
@@ -147,6 +81,7 @@ The PowerShell launcher provides 1-click execution for building containers, star
 .\launcher.ps1 kill               # Stop running containers
 .\launcher.ps1 clean              # Remove container volumes & images
 ```
+
 
 #### Available Robot Heads:
 - **`humanoid`**: `Isaac-Humanoid-Imitation-v0` (Reference Motion Tracking & Biped Locomotion)
@@ -226,18 +161,7 @@ bash third_party/retarget_tools/run_retarget.sh \
     --task Isaac-Humanoid-Imitation-v0 --headless --num_envs 16
 ```
 
-#### 2. ANYmal Quadruped & AMR Mobile Robot Training
-```bash
-# ANYmal-C Quadruped
-/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
-    --task Isaac-Anymal-C-v0 --headless --num_envs 16
-
-# AMR TurtleBot3 Navigation
-/isaac-sim/python.sh /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py \
-    --task Isaac-AMR-Navigation-v0 --headless --num_envs 16
-```
-
-#### 3. Cobot Vision-Language-Action (VLA) Fine-Tuning ($\pi_0$, SmolVLA, ACT)
+#### 2. Cobot Vision-Language-Action (VLA) Fine-Tuning ($\pi_0$, SmolVLA, ACT)
 ```bash
 # 1-Click Master VLA Pipeline
 bash third_party/vla_tools/run_vla_pipeline.sh pi0
@@ -251,13 +175,3 @@ python3 core/source/cobot/vla/train_vla.py \
 ```
 
 ---
-
-## 3. ROS2 Integration
-
-The container automatically sources ROS2 Humble and the workspace ROS2 environment (`/workspace/ros_ws/install/setup.bash`).
-
-### Launch Robot State Publisher & TF Frames
-```bash
-# Broadcast TF tree for selected head (humanoid | anymal | amr | cobot)
-ros2 launch viro_ros2_ws robot_state_publisher.launch.py robot_type:=cobot
-```
