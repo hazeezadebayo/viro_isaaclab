@@ -105,13 +105,11 @@ $$\mathbf{s}_t = \begin{bmatrix} v_x & \omega_z & \mathbf{g}_b & \mathbf{m}_{16 
 3. **Occupancy Mask ($\mathbf{m} \in [0,1]^{192}$)**: The RGB camera frame (64x48, forward-mounted, ~15° pitch) is **grayscaled, thresholded** (white path = 1, black ground = 0) and **area-pooled** down to a 16x12 grid (`camera_occupancy_mask`). Each cell encodes the fraction of white path visible in that image region. This hand-written mask is the entire "perception" of the task — no CNN required.
 4. **Last Action ($a_{v, t-1}, a_{\omega, t-1}$)**: Previous policy output for smoothness conditioning.
 
-The mask pipeline can be visualized with:
+The live camera stream can be inspected with:
 
 ```bash
-/isaac-sim/python.sh /workspace/core/scripts/debug_mask.py --num_envs 4 --steps 5
+python3 /workspace/core/ros2_ws/image_listener.py --topic /amr/camera/rgb
 ```
-
-which writes raw RGB, thresholded binary, and pooled mask PNGs to `core/logs/mask_debug/`.
 
 ---
 
