@@ -177,27 +177,14 @@ def convert_usd_to_mp4(
     # Geometry shapes live inside "over Flattened_Prototype_*" sections, which
     # stage.Traverse() skips because "over" prims are not "defined". We use
     # stage.TraverseAll() to reach all prims including prototypes.
-    # -------------------------------------------------------------------------
-    # Phase 2: Match geometry (Capsule, Cylinder, Sphere, Cube, Mesh) to bodies
-    # -------------------------------------------------------------------------
+    # Match geometry to animated bodies by prim name.
+
     axis_map = {"X": Gf.Vec3d(1, 0, 0), "Y": Gf.Vec3d(0, 1, 0), "Z": Gf.Vec3d(0, 0, 1)}
-    geom_info: dict[str, list[dict]] = {}  # body_name -> list of shape dicts
+    geom_info: dict[str, dict] = {}  # body_name -> {type, height, radius, axis, local_mat}
 
     for prim in stage.TraverseAll():
-        if not prim.IsA(UsdGeom.Gprim):
-            continue
-
-        # Find nearest ancestor prim that is an animated body link
-        curr = prim
-        body_name = None
-        while curr and curr.IsValid() and str(curr.GetPath()) != "/":
-            cname = curr.GetName()
-            if cname in body_xforms:
-                body_name = cname
-                break
-            curr = curr.GetParent()
-
-        if not body_name:
+        name = prim.GetName()
+        if name not in body_xforms or name in geom_info:
             continue
 
         # Read local transform if present
@@ -208,81 +195,30 @@ def convert_usd_to_mp4(
             if val is not None:
                 local_mat = Gf.Matrix4d(val)
 
-        shape_entry = None
-
         if prim.IsA(UsdGeom.Capsule):
             capsule = UsdGeom.Capsule(prim)
             h = capsule.GetHeightAttr().Get()
             r = capsule.GetRadiusAttr().Get()
             ax = capsule.GetAxisAttr().Get()
-            shape_entry = {
+            geom_info[name] = {
                 "type": "capsule",
                 "height": float(h) if h else 0.1,
                 "radius": float(r) if r else 0.02,
                 "axis": str(ax) if ax else "Y",
                 "local_mat": local_mat,
             }
-        elif prim.IsA(UsdGeom.Cylinder):
-            cyl = UsdGeom.Cylinder(prim)
-            h = cyl.GetHeightAttr().Get()
-            r = cyl.GetRadiusAttr().Get()
-            ax = cyl.GetAxisAttr().Get()
-            shape_entry = {
-                "type": "capsule",
-                "height": float(h) if h else 0.1,
-                "radius": float(r) if r else 0.03,
-                "axis": str(ax) if ax else "Z",
-                "local_mat": local_mat,
-            }
         elif prim.IsA(UsdGeom.Sphere):
             sphere = UsdGeom.Sphere(prim)
             r = sphere.GetRadiusAttr().Get()
-            shape_entry = {
+            geom_info[name] = {
                 "type": "sphere",
                 "radius": float(r) if r else 0.05,
                 "local_mat": local_mat,
             }
-        elif prim.IsA(UsdGeom.Cube):
-            cube = UsdGeom.Cube(prim)
-            sz = cube.GetSizeAttr().Get()
-            sz_val = float(sz) if sz else 0.1
-            shape_entry = {
-                "type": "capsule",
-                "height": sz_val,
-                "radius": sz_val * 0.4,
-                "axis": "Z",
-                "local_mat": local_mat,
-            }
-        elif prim.IsA(UsdGeom.Mesh):
-            mesh = UsdGeom.Mesh(prim)
-            ext_attr = mesh.GetExtentAttr()
-            if ext_attr and ext_attr.HasValue():
-                ext = ext_attr.Get()
-                if ext and len(ext) == 2:
-                    min_p, max_p = ext[0], ext[1]
-                    dx = abs(max_p[0] - min_p[0])
-                    dy = abs(max_p[1] - min_p[1])
-                    dz = abs(max_p[2] - min_p[2])
-                    h = max(dz, 0.05)
-                    r = max(dx, dy) / 2.0
-                    r = max(min(r, 0.25), 0.02)
-                    shape_entry = {
-                        "type": "capsule",
-                        "height": float(h),
-                        "radius": float(r),
-                        "axis": "Z",
-                        "local_mat": local_mat,
-                    }
 
-        if shape_entry:
-            if body_name not in geom_info:
-                geom_info[body_name] = []
-            # Avoid duplicate identical shapes
-            if not any(s["type"] == shape_entry["type"] and s["height"] == shape_entry.get("height") and s["radius"] == shape_entry["radius"] for s in geom_info[body_name]):
-                geom_info[body_name].append(shape_entry)
-
-    total_shapes = sum(len(shapes) for shapes in geom_info.values())
-    print(f"[INFO] Matched {total_shapes} geometry shape(s) across {len(geom_info)} body link(s)")
+    print(f"[INFO] Matched {len(geom_info)} geometry shapes to bodies: "
+          f"{sum(1 for g in geom_info.values() if g['type'] == 'capsule')} capsules, "
+          f"{sum(1 for g in geom_info.values() if g['type'] == 'sphere')} spheres")
 
     # -------------------------------------------------------------------------
     # Phase 3: Infer skeleton connectivity
@@ -334,7 +270,7 @@ def convert_usd_to_mp4(
     color_map = {name: palette[i] for i, name in enumerate(body_names)}
 
     # -------------------------------------------------------------------------
-    # Phase 5: Pre-compute per-frame data (positions + geometry shapes)
+    # Phase 5: Pre-compute per-frame data (positions + geometry endpoints)
     # -------------------------------------------------------------------------
     frame_data: list[dict[str, dict]] = []
 
@@ -345,33 +281,31 @@ def convert_usd_to_mp4(
         for name, xf in body_xforms.items():
             body_mat = xf.ComputeLocalToWorldTransform(tc)
             pos = body_mat.ExtractTranslation()
-            entry: dict = {
-                "pos": np.array([pos[0], pos[1], pos[2]], dtype=np.float64),
-                "shapes": [],
-            }
+            entry: dict = {"pos": np.array([pos[0], pos[1], pos[2]], dtype=np.float64)}
 
             if name in geom_info:
-                for gi in geom_info[name]:
-                    if gi["type"] == "capsule":
-                        geom_world = gi["local_mat"] * body_mat
-                        axis_dir = axis_map.get(gi["axis"], Gf.Vec3d(0, 1, 0))
-                        half_h = gi["height"] / 2.0
-                        p1 = geom_world.Transform(axis_dir * half_h)
-                        p2 = geom_world.Transform(axis_dir * (-half_h))
-                        entry["shapes"].append({
-                            "type": "capsule",
-                            "p1": np.array([p1[0], p1[1], p1[2]], dtype=np.float64),
-                            "p2": np.array([p2[0], p2[1], p2[2]], dtype=np.float64),
-                            "radius": gi["radius"],
-                            "center": np.array([(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0, (p1[2] + p2[2]) / 2.0], dtype=np.float64),
-                        })
-                    elif gi["type"] == "sphere":
-                        center = body_mat.Transform(Gf.Vec3d(0, 0, 0))
-                        entry["shapes"].append({
-                            "type": "sphere",
-                            "center": np.array([center[0], center[1], center[2]], dtype=np.float64),
-                            "radius": gi["radius"],
-                        })
+                gi = geom_info[name]
+
+                if gi["type"] == "capsule":
+                    # Compose: geometry local transform * body world transform
+                    geom_world = gi["local_mat"] * body_mat
+                    axis_dir = axis_map.get(gi["axis"], Gf.Vec3d(0, 1, 0))
+                    half_h = gi["height"] / 2.0
+
+                    # Capsule endpoints in world space
+                    p1 = geom_world.Transform(axis_dir * half_h)
+                    p2 = geom_world.Transform(axis_dir * (-half_h))
+
+                    entry["geom"] = "capsule"
+                    entry["p1"] = np.array([p1[0], p1[1], p1[2]], dtype=np.float64)
+                    entry["p2"] = np.array([p2[0], p2[1], p2[2]], dtype=np.float64)
+                    entry["radius"] = gi["radius"]
+
+                elif gi["type"] == "sphere":
+                    center = body_mat.Transform(Gf.Vec3d(0, 0, 0))
+                    entry["geom"] = "sphere"
+                    entry["center"] = np.array([center[0], center[1], center[2]], dtype=np.float64)
+                    entry["radius"] = gi["radius"]
 
             frame[name] = entry
 
@@ -385,14 +319,11 @@ def convert_usd_to_mp4(
         for entry in frame.values():
             all_pts.append(entry["pos"])
     all_pts = np.array(all_pts)
-    valid_pts = all_pts[np.isfinite(all_pts).all(axis=1)] if len(all_pts) > 0 else np.array([])
-    if len(valid_pts) == 0:
-        valid_pts = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
-    min_b = valid_pts.min(axis=0)
-    max_b = valid_pts.max(axis=0)
+    min_b = all_pts.min(axis=0)
+    max_b = all_pts.max(axis=0)
     center = (min_b + max_b) / 2.0
     extent = float(np.max(max_b - min_b))
-    if not np.isfinite(extent) or extent < 0.5:
+    if extent < 0.5:
         extent = 2.0
 
     focal = width * 1.3
@@ -449,6 +380,12 @@ def convert_usd_to_mp4(
 
         frame = frame_data[fi]
 
+        # Sort bodies back-to-front for correct depth overlap (painter's algorithm)
+        depth_sorted = sorted(
+            body_names,
+            key=lambda n: -np.dot(frame[n]["pos"] - cam_pos, forward)
+        )
+
         # Draw ground shadows first
         for name in body_names:
             sp = project(np.array([frame[name]["pos"][0], frame[name]["pos"][1], ground_z]))
@@ -462,48 +399,35 @@ def convert_usd_to_mp4(
             if p1 and p2:
                 cv2.line(img, p1, p2, (50, 55, 70), 2, cv2.LINE_AA)
 
-        # Collect all 3D shapes for this frame and depth-sort back-to-front
-        all_shapes = []
-        for name in body_names:
+        # Draw geometry shapes (depth-sorted, back to front)
+        for name in depth_sorted:
+            entry = frame[name]
             color = color_map[name]
             edge = _edge_color(color)
-            shapes = frame[name]["shapes"]
-            if shapes:
-                for s in shapes:
-                    center_pt = s.get("center", frame[name]["pos"])
-                    depth = np.dot(center_pt - cam_pos, forward)
-                    all_shapes.append({"depth": depth, "shape": s, "color": color, "edge": edge, "body": name})
-            else:
-                depth = np.dot(frame[name]["pos"] - cam_pos, forward)
-                all_shapes.append({"depth": depth, "shape": None, "color": color, "edge": edge, "body": name})
 
-        all_shapes.sort(key=lambda item: -item["depth"])
+            geom_type = entry.get("geom")
 
-        # Draw geometry shapes (depth-sorted, back to front)
-        for item in all_shapes:
-            s = item["shape"]
-            color = item["color"]
-            edge = item["edge"]
+            if geom_type == "capsule":
+                p1_2d = project(entry["p1"])
+                p2_2d = project(entry["p2"])
+                if p1_2d and p2_2d:
+                    mid = (entry["p1"] + entry["p2"]) / 2.0
+                    r_px = project_radius(mid, entry["radius"])
+                    _draw_capsule_2d(img, p1_2d, p2_2d, r_px, color, edge, cv2)
 
-            if s is not None:
-                if s["type"] == "capsule":
-                    p1_2d = project(s["p1"])
-                    p2_2d = project(s["p2"])
-                    if p1_2d and p2_2d:
-                        r_px = project_radius(s["center"], s["radius"])
-                        _draw_capsule_2d(img, p1_2d, p2_2d, r_px, color, edge, cv2)
-                elif s["type"] == "sphere":
-                    p2d = project(s["center"])
-                    if p2d and 0 <= p2d[0] < width and 0 <= p2d[1] < height:
-                        r_px = project_radius(s["center"], s["radius"])
-                        cv2.circle(img, p2d, r_px, color, -1, cv2.LINE_AA)
-                        cv2.circle(img, p2d, r_px, edge, 1, cv2.LINE_AA)
+            elif geom_type == "sphere":
+                p2d = project(entry["center"])
+                if p2d and 0 <= p2d[0] < width and 0 <= p2d[1] < height:
+                    r_px = project_radius(entry["center"], entry["radius"])
+                    cv2.circle(img, p2d, r_px, color, -1, cv2.LINE_AA)
+                    cv2.circle(img, p2d, r_px, edge, 1, cv2.LINE_AA)
+
             else:
                 # Fallback: no geometry found for this body, draw a joint circle
-                p2d = project(frame[item["body"]]["pos"])
+                p2d = project(entry["pos"])
                 if p2d and 0 <= p2d[0] < width and 0 <= p2d[1] < height:
-                    cv2.circle(img, p2d, 6, color, -1, cv2.LINE_AA)
-                    cv2.circle(img, p2d, 6, edge, 1, cv2.LINE_AA)
+                    cv2.circle(img, p2d, 5, color, -1, cv2.LINE_AA)
+                    cv2.circle(img, p2d, 5, edge, 1, cv2.LINE_AA)
 
         # HUD
         sim_t = fi * (1.0 / fps) if fps > 0 else 0

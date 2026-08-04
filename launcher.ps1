@@ -35,8 +35,8 @@ $ComposeFile = Join-Path $ScriptDir "docker\docker-compose.yml"
 $HeadTaskMap = @{
     "humanoid" = "Isaac-Humanoid-Imitation-v0"
     "anymal"   = "Isaac-Anymal-C-v0"
-    "amr"      = "Isaac-AMR-Navigation-v0"
-    "cobot"    = "Isaac-Lift-Cylinder-Cobot-Play-v0" # "Isaac-Lift-Cylinder-Cobot-Play-v0" | "Isaac-Lift-Cylinder-Cobot-v0"
+    "amr"      = "Isaac-AMR-Traversability-v0"
+    "cobot"    = "Isaac-Lift-Cylinder-Cobot-Play-v0"
 }
 
 # Simulation step time (sim.dt * decimation) per head, used to convert video clip
@@ -267,11 +267,11 @@ function Invoke-Train {
     if ($MaxIterations -gt 0) { $cmdArgs += @("--max_iterations", "$MaxIterations") }
     if ($Checkpoint) { $cmdArgs += @("--checkpoint", $Checkpoint) }
 
-    $execEnv = @()
+    $execEnv = @("-e", "ROS_DISTRO=humble", "-e", "RMW_IMPLEMENTATION=rmw_fastrtps_cpp", "-e", "LD_LIBRARY_PATH=/opt/ros/humble/lib")
     if ($UsdExport) {
         $intervalSec = if ($UsdIntervalSec -ne 1800.0) { $UsdIntervalSec } else { [int][Math]::Round($VideoIntervalMin * 60.0) }
         $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
-        $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
+        $execEnv += @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
         Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
     }
     else {
@@ -302,11 +302,11 @@ function Invoke-Play {
     $cmdArgs = @("--task", $task, "--num_envs", "$NumEnvs", "--checkpoint", $Checkpoint)
     if ($RealTime) { $cmdArgs += "--real-time" }
 
-    $execEnv = @()
+    $execEnv = @("-e", "ROS_DISTRO=humble", "-e", "RMW_IMPLEMENTATION=rmw_fastrtps_cpp", "-e", "LD_LIBRARY_PATH=/opt/ros/humble/lib")
     if ($UsdExport) {
         $intervalSec = if ($UsdIntervalSec -ne 1800.0) { $UsdIntervalSec } else { [int][Math]::Round($VideoIntervalMin * 60.0) }
         $lengthSec = if ($UsdLengthSec -ne 10.0) { $UsdLengthSec } else { [int][Math]::Round($VideoLengthMin * 60.0) }
-        $execEnv = @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
+        $execEnv += @("-e", "USD_EXPORT=1", "-e", "USD_INTERVAL=$intervalSec", "-e", "USD_LENGTH=$lengthSec")
         Write-Info "Automated USD & MP4 Export Enabled: Interval=${intervalSec}s (${VideoIntervalMin}min), Length=${lengthSec}s (${VideoLengthMin}min)"
     }
     else {

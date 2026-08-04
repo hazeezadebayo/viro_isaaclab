@@ -3,45 +3,111 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""In-process ROS2 scene subscriber for the pseudo-HIL traversability task.
+"""In-process ROS2 scene subscriber & auto-launching node manager for traversability (pseudo-HIL).
 
-Spawns a background ``rclpy`` node that subscribes to the synthetic world node's
+Spawns a background ``rclpy`` subscriber node that subscribes to the synthetic world node's
 topics and caches the latest map and camera frame so IsaacLab observation / reward /
 command / event terms can read them synchronously on ``env.device``.
 
+If an external synthetic world node (python core/ros2_ws/ros_synthetic_world.py) is not already
+running on ROS2, RosScene automatically instantiates and spins SyntheticWorldNode inside the ROS2 context,
+ensuring seamless hardware-in-the-loop ROS2 communication.
+
 Topics:
-  * /amr/world/grid    (nav_msgs/OccupancyGrid)  - ground-truth map
-  * /amr/camera/rgb    (sensor_msgs/Image)       - forward-ahead camera frame
+  * /amr/world/grid    (nav_msgs/OccupancyGrid)    - ground-truth map
+  * /amr/camera/rgb    (sensor_msgs/Image)         - forward-ahead POV frame
   * /amr/robot_pose    (geometry_msgs/PoseStamped) - published by IsaacLab (out)
 """
 
 from __future__ import annotations
 
+import ctypes
+import inspect
+import os
+import sys
 import threading
 import time
 
 import numpy as np
 import torch
 
-# Module-level shared handle so every term reuses one node/thread.
+# Patch inspect.getfile to prevent TypeError on namespace packages (like isaaclab) when rclpy logger inspects stack frames
+_orig_getfile = inspect.getfile
+def _safe_getfile(object):
+    try:
+        return _orig_getfile(object)
+    except TypeError:
+        return getattr(object, "__file__", None) or "<namespace>"
+inspect.getfile = _safe_getfile
+
+# Ensure ROS2 Python site-packages & C shared libraries are loaded into process space
+ros_distro = os.getenv("ROS_DISTRO", "humble")
+ros_lib_dir = f"/opt/ros/{ros_distro}/lib"
+
+if os.path.exists(ros_lib_dir):
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    if ros_lib_dir not in current_ld:
+        os.environ["LD_LIBRARY_PATH"] = f"{ros_lib_dir}:{current_ld}"
+
+    # Pre-load ROS2 core shared libraries into process memory with RTLD_GLOBAL so _rclpy_pybind11 finds them
+    for so_name in [
+        "librcutils.so",
+        "librcpputils.so",
+        "librcl_logging_interface.so",
+        "librcl_interfaces__rosidl_generator_c.so",
+        "librcl_interfaces__rosidl_typesupport_c.so",
+        "librmw.so",
+        "librmw_implementation.so",
+        "librcl.so",
+        "librcl_action.so",
+        "librcl_yaml_param_parser.so",
+    ]:
+        so_path = os.path.join(ros_lib_dir, so_name)
+        if os.path.exists(so_path):
+            try:
+                ctypes.CDLL(so_path, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+for p in [
+    f"/opt/ros/{ros_distro}/lib/python3.10/site-packages",
+    f"/opt/ros/{ros_distro}/local/lib/python3.10/dist-packages",
+    "/opt/ros/humble/lib/python3.10/site-packages",
+    "/opt/ros/humble/local/lib/python3.10/dist-packages",
+]:
+    if os.path.exists(p) and p not in sys.path:
+        sys.path.append(p)
+
+try:
+    import rclpy
+    from rclpy.executors import MultiThreadedExecutor
+    from geometry_msgs.msg import PoseStamped
+    from nav_msgs.msg import OccupancyGrid
+    from sensor_msgs.msg import Image
+    HAS_ROS2 = True
+except ImportError as err:
+    HAS_ROS2 = False
+    _ROS2_IMPORT_ERROR = err
+
 _ROS_SCENE: "RosScene" | None = None
 
 
 class RosScene:
-    """Background rclpy subscriber caching the latest map + camera frame."""
+    """Background rclpy subscriber & node manager caching the latest map + camera frame."""
 
     def __init__(self) -> None:
-        import rclpy
-        from geometry_msgs.msg import PoseStamped
-        from nav_msgs.msg import OccupancyGrid
-        from sensor_msgs.msg import Image
-
-        self._Image = Image
-        self._PoseStamped = PoseStamped
+        if not HAS_ROS2:
+            raise RuntimeError(
+                f"Failed to import rclpy / ROS2: {_ROS2_IMPORT_ERROR}. "
+                "Ensure ROS2 (humble) is installed and sourced (/opt/ros/humble/setup.bash)."
+            )
 
         if not rclpy.ok():
             rclpy.init(args=None)
+
+        self._executor = MultiThreadedExecutor()
         self._node = rclpy.create_node("amr_traversability_ros_scene")
+        self._executor.add_node(self._node)
 
         self._grid_msg: OccupancyGrid | None = None
         self._image_msg: Image | None = None
@@ -52,14 +118,25 @@ class RosScene:
         self._cam_sub = self._node.create_subscription(Image, "/amr/camera/rgb", self._on_image, 10)
         self._pose_pub = self._node.create_publisher(PoseStamped, "/amr/robot_pose", 10)
 
-        self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+        # Start background spinning thread
+        self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
-    def _spin(self) -> None:
-        import rclpy
+        # Check if an external synthetic world publisher is already running; if not, launch it on ROS2 in-process
+        if not self.wait_until_ready(timeout=2.0):
+            print("[INFO] No external ROS2 synthetic world node detected on /amr/world/grid. Auto-launching SyntheticWorldNode on ROS2...")
+            try:
+                from core.ros2_ws.ros_synthetic_world import SyntheticWorldNode
+                self._world_node = SyntheticWorldNode()
+                self._executor.add_node(self._world_node)
+                print("[INFO] SyntheticWorldNode active and publishing on ROS2 topics (/amr/world/grid, /amr/camera/rgb).")
+            except Exception as e:
+                import traceback
+                print(f"[WARN] Failed to auto-launch SyntheticWorldNode: {e}")
+                traceback.print_exc()
 
-        while rclpy.ok():
-            rclpy.spin_once(self._node, timeout_sec=0.05)
+            if not self.wait_until_ready(timeout=5.0):
+                print("[WARN] SyntheticWorldNode launched but map message not yet received on /amr/world/grid.")
 
     def _on_grid(self, msg) -> None:
         with self._grid_lock:
@@ -69,10 +146,9 @@ class RosScene:
         with self._image_lock:
             self._image_msg = msg
 
-    # ------------------------------------------------------------------
     def publish_pose(self, x: float, y: float, yaw: float, stamp=None) -> None:
-        """Publish the robot's world pose so the world node renders a fresh frame."""
-        msg = self._PoseStamped()
+        """Publish the robot's world pose so the synthetic world ROS node renders a fresh frame."""
+        msg = PoseStamped()
         if stamp is not None:
             msg.header.stamp = stamp
         else:
@@ -88,7 +164,7 @@ class RosScene:
         self._pose_pub.publish(msg)
 
     def wait_until_ready(self, timeout: float = 10.0) -> bool:
-        """Block until the grid (and ideally a camera frame) has arrived."""
+        """Block until the grid message has arrived from ROS2."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._grid_lock:
@@ -98,7 +174,6 @@ class RosScene:
             time.sleep(0.05)
         return False
 
-    # ------------------------------------------------------------------
     def occupancy_grid_tensor(self, device: str) -> torch.Tensor | None:
         """Return the grid (H, W) uint8 on ``device`` if available, else None."""
         with self._grid_lock:
@@ -108,10 +183,12 @@ class RosScene:
         arr = np.asarray(msg.data, dtype=np.uint8).reshape(msg.info.height, msg.info.width)
         return torch.from_numpy(arr).to(device)
 
-    def grid_meta(self) -> dict:
+    def grid_meta(self) -> dict | None:
         """Return grid resolution and origin in world coordinates."""
         with self._grid_lock:
             msg = self._grid_msg
+        if msg is None:
+            return None
         return {
             "resolution": msg.info.resolution,
             "origin_x": msg.info.origin.position.x,
@@ -130,10 +207,10 @@ class RosScene:
         return torch.from_numpy(arr).to(device)
 
     def close(self) -> None:
-        import rclpy
-
         if rclpy.ok():
             self._node.destroy_node()
+            if hasattr(self, "_world_node"):
+                self._world_node.destroy_node()
             rclpy.shutdown()
 
 
@@ -141,24 +218,18 @@ class RosScene:
 # Grid ground-truth helpers (world XY <-> occupancy cells)
 # -----------------------------------------------------------------------------
 
-#: Occupancy value that counts as "on the white path".
 _PATH_OCC_THRESHOLD = 50
-
-#: Cached ground-truth (grid tensor, meta dict, centers tensor) once the map is in.
 _GT_CACHE: dict | None = None
 
 
 def get_ground_truth(device: str) -> dict:
-    """Return cached {grid, resolution, origin_x, origin_y, centers} from the ROS map.
-
-    The map is static, so it is fetched once and cached for the process lifetime.
-    """
+    """Return cached {grid, resolution, origin_x, origin_y, centers} from the ROS map."""
     global _GT_CACHE
     if _GT_CACHE is None:
         scene = get_ros_scene()
         if not scene.wait_until_ready(timeout=15.0):
             raise RuntimeError(
-                "No occupancy grid received on /amr/world/grid. "
+                "No occupancy grid received on /amr/world/grid over ROS2. "
                 "Is the synthetic world node running? (python core/ros2_ws/ros_synthetic_world.py)"
             )
         grid = scene.occupancy_grid_tensor(device)
@@ -243,14 +314,9 @@ def path_tangent_at(
     centers: torch.Tensor,
     radius: float = 0.3,
 ) -> torch.Tensor:
-    """Heading (n,) of the path tangent at the nearest on-path cell.
-
-    Computed with a local PCA over the on-path cell centers within ``radius`` of the
-    point: the first principal component is the local contour direction.
-    """
+    """Heading (n,) of the path tangent at the nearest on-path cell."""
     dist = torch.norm(xy.unsqueeze(1) - centers.unsqueeze(0), dim=2)
     nearest = dist.min(dim=1).indices
-    base = centers[nearest]  # (n, 2)
 
     near = dist <= radius  # (n, M) mask of on-path cells within the window
     tangent = torch.empty(len(xy), device=xy.device)
@@ -261,7 +327,6 @@ def path_tangent_at(
             continue
         c = cells - cells.mean(dim=0, keepdim=True)
         cov = c.T @ c
-        # first principal axis (direction of max variance) = local tangent
         _, _, vt = torch.linalg.svd(cov)
         d = vt[0]
         if d[0] < 0:

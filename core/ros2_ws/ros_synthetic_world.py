@@ -23,10 +23,59 @@ Closed loop:
 
 from __future__ import annotations
 
+import ctypes
+import inspect
 import math
+import os
 import sys
 
 import numpy as np
+
+# Patch inspect.getfile to prevent TypeError when rclpy logger inspects stack frames involving namespace modules like isaaclab
+_orig_getfile = inspect.getfile
+def _safe_getfile(object):
+    try:
+        return _orig_getfile(object)
+    except TypeError:
+        return getattr(object, "__file__", None) or "<namespace>"
+inspect.getfile = _safe_getfile
+
+# Ensure ROS2 Python site-packages & C shared libraries are loaded into process space
+ros_distro = os.getenv("ROS_DISTRO", "humble")
+ros_lib_dir = f"/opt/ros/{ros_distro}/lib"
+
+if os.path.exists(ros_lib_dir):
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    if ros_lib_dir not in current_ld:
+        os.environ["LD_LIBRARY_PATH"] = f"{ros_lib_dir}:{current_ld}"
+
+    for so_name in [
+        "librcutils.so",
+        "librcpputils.so",
+        "librcl_logging_interface.so",
+        "librcl_interfaces__rosidl_generator_c.so",
+        "librcl_interfaces__rosidl_typesupport_c.so",
+        "librmw.so",
+        "librmw_implementation.so",
+        "librcl.so",
+        "librcl_action.so",
+        "librcl_yaml_param_parser.so",
+    ]:
+        so_path = os.path.join(ros_lib_dir, so_name)
+        if os.path.exists(so_path):
+            try:
+                ctypes.CDLL(so_path, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+for p in [
+    f"/opt/ros/{ros_distro}/lib/python3.10/site-packages",
+    f"/opt/ros/{ros_distro}/local/lib/python3.10/dist-packages",
+    "/opt/ros/humble/lib/python3.10/site-packages",
+    "/opt/ros/humble/local/lib/python3.10/dist-packages",
+]:
+    if os.path.exists(p) and p not in sys.path:
+        sys.path.append(p)
 
 try:
     import rclpy
@@ -90,7 +139,7 @@ def build_occupancy_grid() -> tuple[np.ndarray, OccupancyGrid]:
     msg.info.origin.position.y = GRID_Y_MIN
     msg.info.origin.position.z = 0.0
     msg.info.origin.orientation.w = 1.0
-    msg.data = cell_grid.ravel().tolist()
+    msg.data = cell_grid.astype(np.int8).ravel().tolist()
     return cell_grid, msg
 
 
@@ -198,8 +247,8 @@ class SyntheticWorldNode(Node):
 
         self._publish_grid()
         self._grid_timer = self.create_timer(GRID_REPUBLISH_PERIOD, self._publish_grid)
-        self.get_logger().info(
-            f"Synthetic world ready: grid {GRID_WIDTH}x{GRID_HEIGHT} @ {GRID_RESOLUTION} m/cell, "
+        print(
+            f"[INFO] Synthetic world ready: grid {GRID_WIDTH}x{GRID_HEIGHT} @ {GRID_RESOLUTION} m/cell, "
             f"camera {CAM_W}x{CAM_H}"
         )
 

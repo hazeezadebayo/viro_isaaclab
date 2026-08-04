@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Observation terms for the AMR traversability task (pseudo-HIL).
+"""Observation terms for the AMR traversability task (pseudo-HIL over ROS2).
 
 The camera feed comes from the ROS2 synthetic world node (``/amr/camera/rgb``) which
 renders a forward-ahead view of the grid from the robot's current pose. The raw RGB
@@ -29,13 +29,13 @@ def ros_camera_mask(
     mask_height: int = 16,
     mask_width: int = 12,
     threshold: float = 0.5,
-    timeout: float = 3.0,
+    timeout: float = 5.0,
 ) -> torch.Tensor:
     """Thresholded, area-pooled white-path occupancy mask from the ROS2 camera.
 
-    Publishes the robot pose so the world node renders a fresh frame, then reads the
-    latest frame and binarizes / area-pools it exactly like the old in-scene tiled
-    camera. Returns shape ``(num_envs, mask_height * mask_width)``.
+    Publishes the robot pose to ROS2 topic (/amr/robot_pose), then reads the latest
+    frame from ROS2 topic (/amr/camera/rgb) and binarizes / area-pools it.
+    Returns shape ``(num_envs, mask_height * mask_width)``.
 
     Raises:
         RuntimeError: if no camera frame arrives within ``timeout`` seconds.
@@ -55,10 +55,11 @@ def ros_camera_mask(
         if rgb is not None:
             break
         time.sleep(0.05)
+
     if rgb is None:
         raise RuntimeError(
-            f"No camera frame received on /amr/camera/rgb within {timeout}s. "
-            "Is the synthetic world node running? (python core/ros2_ws/ros_synthetic_world.py)"
+            f"No camera frame received on ROS2 topic /amr/camera/rgb within {timeout}s. "
+            "Ensure ROS2 daemon and synthetic world node are running."
         )
 
     gray = rgb.float().mean(dim=-1) / 255.0  # (H, W)
