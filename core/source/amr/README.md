@@ -108,7 +108,7 @@ $$\mathbf{s}_t = \begin{bmatrix} v_x & \omega_z & \mathbf{g}_b & \mathbf{m}_{16 
 The live camera stream can be inspected with:
 
 ```bash
-python3 /workspace/core/ros2_ws/image_listener.py --topic /amr/camera/rgb
+python3 /workspace/core/ros2_ws/src/image_listener.py --topic /amr/camera/rgb
 ```
 
 ---

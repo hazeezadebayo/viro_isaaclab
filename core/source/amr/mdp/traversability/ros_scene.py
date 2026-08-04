@@ -9,7 +9,7 @@ Spawns a background ``rclpy`` subscriber node that subscribes to the synthetic w
 topics and caches the latest map and camera frame so IsaacLab observation / reward /
 command / event terms can read them synchronously on ``env.device``.
 
-If an external synthetic world node (python core/ros2_ws/ros_synthetic_world.py) is not already
+If an external synthetic world node (python core/ros2_ws/src/ros_synthetic_world.py) is not already
 running on ROS2, RosScene automatically instantiates and spins SyntheticWorldNode inside the ROS2 context,
 ensuring seamless hardware-in-the-loop ROS2 communication.
 
@@ -126,7 +126,7 @@ class RosScene:
         if not self.wait_until_ready(timeout=2.0):
             print("[INFO] No external ROS2 synthetic world node detected on /amr/world/grid. Auto-launching SyntheticWorldNode on ROS2...")
             try:
-                from core.ros2_ws.ros_synthetic_world import SyntheticWorldNode
+                from core.ros2_ws.src.ros_synthetic_world import SyntheticWorldNode
                 self._world_node = SyntheticWorldNode()
                 self._executor.add_node(self._world_node)
                 print("[INFO] SyntheticWorldNode active and publishing on ROS2 topics (/amr/world/grid, /amr/camera/rgb).")

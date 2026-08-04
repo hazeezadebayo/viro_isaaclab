@@ -64,7 +64,7 @@ The optional `PeriodicVideoRecorderWrapper` (`core/utils/video_recorder.py`) pro
 (moviepy/ffmpeg) plus live ROS2 streaming for scripted/custom runners:
 - MP4 clips: `/workspace/core/logs/videos/sim_clip_*.mp4`
 - Live ROS2 stream topic: `/camera/rgb/image_raw`
-- View live stream: `python3 core/ros2_ws/image_listener.py`
+- View live stream: `python3 core/ros2_ws/src/image_listener.py`
 
 > **Known limitation (Docker Desktop):** `--video` frames are rendered through the NVIDIA Vulkan
 > driver, which Docker Desktop's WSL2 GPU passthrough does **not** expose (only CUDA/compute libs
