@@ -249,16 +249,32 @@ function Get-VideoArgs {
     return $videoArgs
 }
 
+function Ensure-RosSyntheticWorld {
+    param([string]$TaskName)
+    if ($TaskName -eq "Isaac-AMR-Traversability-v0") {
+        Write-Info "Checking ROS2 Synthetic World node..."
+        Push-Location (Join-Path $ScriptDir "docker")
+        try {
+            $containerId = docker compose -f $ComposeFile ps -q isaac-sim
+            if ($containerId) {
+                $running = docker exec $containerId bash -lc "pgrep -f ros_synthetic_world.py"
+                if (-not $running) {
+                    Write-Info "Launching external ROS2 Synthetic World node process..."
+                    docker exec -d $containerId bash -lc "python3 /workspace/core/ros2_ws/src/ros_synthetic_world.py > /workspace/core/logs/ros_synthetic_world.log 2>&1"
+                    Start-Sleep -Seconds 2
+                }
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+
 function Invoke-Train {
     Ensure-AmrUsd
-    Push-Location (Join-Path $ScriptDir "docker")
-    try {
-        docker compose -f $ComposeFile exec -w /workspace isaac-sim python3 /workspace/core/utils/patch_rsl_rl.py
-    }
-    finally {
-        Pop-Location
-    }
     $task = Resolve-Task
+    Ensure-RosSyntheticWorld $task
     $python = "/isaac-sim/python.sh"
     $script = "/workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py"
 
@@ -295,6 +311,7 @@ function Invoke-Play {
         exit 1
     }
     $task = Resolve-Task
+    Ensure-RosSyntheticWorld $task
     $python = "/isaac-sim/python.sh"
     $script = "/workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/play.py"
 

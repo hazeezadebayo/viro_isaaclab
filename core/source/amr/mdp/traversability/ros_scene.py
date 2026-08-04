@@ -3,20 +3,16 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""In-process ROS2 scene subscriber & auto-spawning node manager for traversability (pseudo-HIL).
+"""Pure ROS2 scene subscriber & publisher interface for AMR traversability (HIL).
 
 Spawns a background ``rclpy`` subscriber node that subscribes to the synthetic world node's
 topics and caches the latest map and camera frame so IsaacLab observation / reward /
 command / event terms can read them synchronously on ``env.device``.
 
-If an external synthetic world node (python core/ros2_ws/src/ros_synthetic_world.py) is not already
-running on ROS2, RosScene automatically spawns ``ros_synthetic_world.py`` as an independent OS process,
-ensuring 100% decoupled process boundaries and strict ROS2 message communication over network topics.
-
-Topics:
-  * /amr/world/grid    (nav_msgs/OccupancyGrid)    - ground-truth map
-  * /amr/camera/rgb    (sensor_msgs/Image)         - forward-ahead POV frame
-  * /amr/robot_pose    (geometry_msgs/PoseStamped) - published by IsaacLab (out)
+IsaacLab acts purely as a ROS2 client:
+  * Subscribes to /amr/world/grid  (nav_msgs/OccupancyGrid)    - ground-truth map
+  * Subscribes to /amr/camera/rgb  (sensor_msgs/Image)         - forward-ahead POV frame
+  * Publishes to  /amr/robot_pose  (geometry_msgs/PoseStamped) - robot world pose
 """
 
 from __future__ import annotations
@@ -24,7 +20,6 @@ from __future__ import annotations
 import ctypes
 import inspect
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -94,7 +89,7 @@ _ROS_SCENE: "RosScene" | None = None
 
 
 class RosScene:
-    """Background rclpy subscriber & node manager caching the latest map + camera frame."""
+    """Pure ROS2 subscriber & publisher client caching map + camera frame."""
 
     def __init__(self) -> None:
         if not HAS_ROS2:
@@ -114,7 +109,6 @@ class RosScene:
         self._image_msg: Image | None = None
         self._grid_lock = threading.Lock()
         self._image_lock = threading.Lock()
-        self._world_process: subprocess.Popen | None = None
 
         self._grid_sub = self._node.create_subscription(OccupancyGrid, "/amr/world/grid", self._on_grid, 10)
         self._cam_sub = self._node.create_subscription(Image, "/amr/camera/rgb", self._on_image, 10)
@@ -123,27 +117,6 @@ class RosScene:
         # Start background spinning thread
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
-
-        # Check if an external synthetic world publisher is already running; if not, spawn it as an independent ROS2 process
-        if not self.wait_until_ready(timeout=2.0):
-            print("[INFO] No external ROS2 synthetic world node detected on /amr/world/grid. Auto-spawning synthetic world process on ROS2...")
-            try:
-                synth_script = "/workspace/core/ros2_ws/src/ros_synthetic_world.py"
-                if not os.path.exists(synth_script):
-                    synth_script = os.path.abspath(
-                        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "ros2_ws", "src", "ros_synthetic_world.py")
-                    )
-                self._world_process = subprocess.Popen(
-                    [sys.executable, synth_script],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                print(f"[INFO] SyntheticWorldNode running as separate ROS2 process (PID: {self._world_process.pid}).")
-            except Exception as e:
-                print(f"[WARN] Failed to spawn external SyntheticWorldNode process: {e}")
-
-            if not self.wait_until_ready(timeout=5.0):
-                print("[WARN] SyntheticWorldNode process spawned but map message not yet received on /amr/world/grid.")
 
     def _on_grid(self, msg) -> None:
         with self._grid_lock:
@@ -154,7 +127,7 @@ class RosScene:
             self._image_msg = msg
 
     def publish_pose(self, x: float, y: float, yaw: float, stamp=None) -> None:
-        """Publish the robot's world pose so the synthetic world ROS node renders a fresh frame."""
+        """Publish the robot's world pose so ROS2 nodes render/process fresh camera frames."""
         msg = PoseStamped()
         if stamp is not None:
             msg.header.stamp = stamp
@@ -170,8 +143,8 @@ class RosScene:
         msg.pose.orientation.z = float(np.sin(yaw / 2.0))
         self._pose_pub.publish(msg)
 
-    def wait_until_ready(self, timeout: float = 10.0) -> bool:
-        """Block until the grid message has arrived from ROS2."""
+    def wait_until_ready(self, timeout: float = 15.0) -> bool:
+        """Block until the grid message has arrived over ROS2."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._grid_lock:
@@ -214,12 +187,6 @@ class RosScene:
         return torch.from_numpy(arr).to(device)
 
     def close(self) -> None:
-        if hasattr(self, "_world_process") and self._world_process is not None:
-            try:
-                self._world_process.terminate()
-                self._world_process.wait(timeout=1.0)
-            except Exception:
-                pass
         if rclpy.ok():
             self._node.destroy_node()
             rclpy.shutdown()
@@ -241,7 +208,7 @@ def get_ground_truth(device: str) -> dict:
         if not scene.wait_until_ready(timeout=15.0):
             raise RuntimeError(
                 "No occupancy grid received on /amr/world/grid over ROS2. "
-                "Is the synthetic world node running? (python core/ros2_ws/src/ros_synthetic_world.py)"
+                "Ensure ROS2 synthetic world node is running (python3 /workspace/core/ros2_ws/src/ros_synthetic_world.py)."
             )
         grid = scene.occupancy_grid_tensor(device)
         meta = scene.grid_meta()
